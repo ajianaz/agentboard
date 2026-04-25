@@ -39,32 +39,49 @@ python server.py --port 9000 --host 127.0.0.1 --log
 python server.py --config /path/to/agentboard.toml
 ```
 
-### Option B: Docker
+### Option B: Docker (from registry)
+
+Pull pre-built image — no git clone needed:
 
 ```bash
-git clone https://github.com/ajianaz/agentboard.git
-cd agentboard
+mkdir -p agentboard && cd agentboard
+curl -fsSL https://raw.githubusercontent.com/ajianaz/agentboard/main/.env.example -o .env
+# Edit .env — set your API key
 docker compose up -d
+```
+
+docker-compose.yml:
+```yaml
+services:
+  agentboard:
+    image: ghcr.io/ajianaz/agentboard:latest
+    env_file: ./.env
+    volumes:
+      - .:/opt/data/agentboard
+    ports:
+      - "8765:8765"
 ```
 
 Open **http://localhost:8765** — done.
 
-**Get your API key** from container logs:
+**Available tags:**
+
+| Tag | Description |
+|-----|-------------|
+| `latest` | Stable release (main branch) |
+| `develop` | Bleeding edge (develop branch) |
+| `v1.0.0` | Version pin |
+
+### Option C: Docker (build from source)
+
 ```bash
-docker compose logs agentboard | grep "API key"
+git clone https://github.com/ajianaz/agentboard.git
+cd agentboard
+# Uncomment 'build: .' in docker-compose.yml, comment 'image: ...'
+docker compose up -d
 ```
 
-**Custom port** (via env or `.env` file):
-```bash
-AGENTBOARD_PORT=9000 docker compose up -d
-```
-
-**Set a fixed API key** (so it doesn't change on recreate):
-```bash
-AGENTBOARD_API_KEY=your-secret-key docker compose up -d
-```
-
-**Data persistence** — database and API key are stored in the `agentboard-data` Docker volume. They survive container restarts and recreates.
+**Data persistence** — database and API key live in the bind-mounted directory (`./` by default). They survive container restarts and recreates.
 
 **Adding to existing docker-compose** — copy the `agentboard` service from `docker-compose.yml` into your own compose file, adjust the network if needed.
 

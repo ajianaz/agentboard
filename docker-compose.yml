@@ -1,6 +1,9 @@
 services:
   agentboard:
-    build: .
+    # Option A: Build from source (requires git clone)
+    # build: .
+    # Option B: Pull pre-built image (recommended)
+    image: ghcr.io/ajianaz/agentboard:latest
     container_name: agentboard
     restart: unless-stopped
     env_file: ./.env
