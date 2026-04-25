@@ -83,7 +83,7 @@ router = Router()
 # Each module calls router.get/post/patch/delete to register its routes.
 # from api import projects, tasks, pages, agents, comments, activity, search
 _ROUTE_MODULES = [
-    "projects", "tasks", "pages", "agents", "comments", "activity", "search",
+    "projects", "tasks", "pages", "agents", "comments", "activity", "search", "export",
 ]
 for _mod_name in _ROUTE_MODULES:
     try:

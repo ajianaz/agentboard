@@ -73,7 +73,8 @@ agentboard/
 │   ├── agents.py          # Agent management
 │   ├── comments.py        # Task/page comments
 │   ├── activity.py        # Activity log
-│   └── search.py          # FTS5 search
+│   ├── search.py          # FTS5 search
+│   └── export.py          # Export/import endpoints
 ├── static/
 │   └── index.html         # Single-page application (all UI)
 ├── agentboard.db          # SQLite database (auto-created)
@@ -366,6 +367,116 @@ PATCH /api/tasks/{id}
 |--------|------|-------------|
 | GET | `/api/search?q={query}` | Search tasks + pages |
 | GET | `/api/search?q={query}&project={slug}` | Search within project |
+
+### Export / Import
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/export` | Export entire database as JSON |
+| GET | `/api/export?project={slug}` | Export single project |
+| POST | `/api/import` | Import data from JSON export |
+
+**Export response format (v1):**
+```json
+{
+  "version": 1,
+  "exported_at": "2026-04-25T16:00:00+00:00",
+  "projects": [
+    {
+      "id": "abc123...",
+      "name": "Marketing",
+      "slug": "marketing",
+      "description": "",
+      "icon": "📊",
+      "color": "#3b82f6",
+      "statuses": [...],
+      "priorities": [...],
+      "tags": [...],
+      "tasks": [
+        {
+          "id": "def456...",
+          "title": "Write launch email",
+          "status": "todo",
+          "priority": "high",
+          "assignee": "kai",
+          "tags": ["email"],
+          ...
+        }
+      ],
+      "pages": [
+        {
+          "id": "ghi789...",
+          "title": "Brand Guidelines",
+          "content": "...",
+          "parent_id": null,
+          "depth": 0,
+          ...
+        }
+      ],
+      "comments": [
+        {
+          "id": "jkl012...",
+          "target_type": "task",
+          "target_id": "def456...",
+          "author": "owner",
+          "content": "Looks good!",
+          "created_at": "..."
+        }
+      ],
+      "activity": [...]
+    }
+  ],
+  "agents": [
+    {
+      "id": "agent-kai",
+      "name": "Kai",
+      "role": "Content Writer",
+      "avatar": "🤖",
+      ...
+    }
+  ]
+}
+```
+
+**Import request:**
+```json
+POST /api/import
+{
+  "data": { ...export format above... }
+}
+```
+
+**Import behavior:**
+- **Agents:** upsert by `id` (existing agents are updated, new ones are created)
+- **Projects:** upsert by `slug` (existing projects are updated metadata-only; tasks/pages are always appended)
+- **Tasks:** always created new with fresh IDs
+- **Pages:** always created new with fresh IDs; `parent_id` references are remapped
+- **Comments:** always created new; `target_id` references are remapped for tasks/pages
+
+**Import response:**
+```json
+{
+  "imported": {
+    "projects": 2,
+    "tasks": 15,
+    "pages": 8,
+    "agents": 3
+  }
+}
+```
+
+**Example — backup and restore:**
+```bash
+# Export everything
+curl http://localhost:8765/api/export \
+  -H "Authorization: Bearer <api-key>" > backup.json
+
+# Import into a fresh instance
+curl -X POST http://localhost:8765/api/import \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -d "{\"data\": $(cat backup.json)}"
+```
 
 ## Agent Workflow
 

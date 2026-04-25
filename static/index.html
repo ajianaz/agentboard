@@ -723,6 +723,13 @@ async function renderSettings(app,slug){
     <div class="form-group"><label>Tags (comma-separated)</label><input id="ps-tags" value="${esc((p.tags||[]).join(', '))}"></div>
     <button class="btn btn-p" onclick="saveProject('${slug}')">Save Changes</button>
     <div class="danger-zone">
+      <h4 style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--t1)">Data</h4>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="btn btn-s btn-sm" onclick="exportProject('${slug}')">📥 Export Project</button>
+        <button class="btn btn-s btn-sm" onclick="exportAll()">📥 Export All</button>
+        <button class="btn btn-s btn-sm" onclick="doImport()">📤 Import</button>
+      </div>
+      <h4 style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--t1)">Danger</h4>
       <button class="btn btn-d btn-sm" onclick="archiveProject('${slug}')">${p.is_archived?'Unarchive':'Archive'} Project</button>
     </div>
   </div>`;
@@ -893,6 +900,47 @@ function handleSearchClick(type,id,slug){
 setInterval(()=>{
   if(!S.taskPanelOpen)render();
 },10000);
+
+// ── Export/Import ──
+async function exportProject(slug){
+  const data=await api('GET','/api/export?project='+slug);
+  if(!data)return;
+  downloadJSON(data,'agentboard-'+slug+'.json');
+  toast('Exported!','ok');
+}
+async function exportAll(){
+  const data=await api('GET','/api/export');
+  if(!data)return;
+  downloadJSON(data,'agentboard-export.json');
+  toast('Exported all!','ok');
+}
+function downloadJSON(data,filename){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=filename;a.click();
+  URL.revokeObjectURL(url);
+}
+function doImport(){
+  const input=document.createElement('input');input.type='file';input.accept='.json';
+  input.onchange=async e=>{
+    const file=e.target.files[0];if(!file)return;
+    try{
+      const text=await file.text();
+      const data=JSON.parse(text);
+      const result=await api('POST','/api/import',{data});
+      if(result)toast('Imported: '+JSON.stringify(result.imported),'ok');
+    }catch(err){toast('Invalid file','err')}
+  };
+  input.click();
+}
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    if(document.getElementById('modal-bg').classList.contains('open'))closeModal();
+    else if(S.taskPanelOpen)closeTaskPanel();
+  }
+});
 
 // Start
 render();
