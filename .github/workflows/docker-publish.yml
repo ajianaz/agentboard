@@ -13,10 +13,17 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
 
     steps:
       - name: Checkout
@@ -39,11 +46,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # On main branch → latest
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            # On develop branch → develop
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
-            # On version tag → version number
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -51,9 +55,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: ${{ matrix.platform }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
