@@ -3,24 +3,23 @@ services:
     build: .
     container_name: agentboard
     restart: unless-stopped
-    ports:
-      - "${AGENTBOARD_PORT:-8765}:8765"
-    environment:
-      # Database stored in persistent volume
-      - AGENTBOARD_DB_PATH=/app/data/agentboard.db
-      # API key file persisted in same volume
-      - AGENTBOARD_API_KEY_FILE=/app/data/.api_key
-      # Set a fixed API key (optional — auto-generated if omitted)
-      # - AGENTBOARD_API_KEY=your-secret-key-here
-      - TZ=Asia/Jakarta
+    env_file: ./.env
     volumes:
-      - agentboard-data:/app/data
+      - .:/opt/data/agentboard
+    ports:
+      - "8765:8765"
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8765/')\" || exit 1"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/')"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 5s
 
-volumes:
-  agentboard-data:
+    # Uncomment for public deployment with Traefik reverse proxy:
+    # networks:
+    #   - public-net
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.agentboard.rule=Host(`board.example.com`)"
+    #   - "traefik.http.routers.agentboard.entrypoints=websecure"
+    #   - "traefik.http.routers.agentboard.tls.certresolver=myresolver"
+    #   - "traefik.http.services.agentboard.loadbalancer.server.port=8765"
