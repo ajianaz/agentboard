@@ -11,4 +11,4 @@ dist/
 build/
 .venv/
 .env
-config.yaml
+.DS_Store

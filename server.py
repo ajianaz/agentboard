@@ -6,8 +6,9 @@ static assets, and REST API endpoints using only Python 3.13 stdlib.
 
 Usage:
     python server.py
-    AGENTBOARD_PORT=9000 python server.py
-    AGENTBOARD_HOST=127.0.0.1 python server.py
+    python server.py --port 9000 --host 127.0.0.1
+    python server.py --config /path/to/agentboard.toml
+    python server.py --log            # enable request logging
 """
 
 import json
@@ -18,12 +19,12 @@ from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
 # Local imports
+from config import get_config
 from db import get_db
 from auth import get_or_create_api_key, hash_key, check_auth
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
-DEFAULT_PORT = 8765
 
 # Lazy-loaded API router (may not exist yet during early development)
 _api_router = None
@@ -177,8 +178,15 @@ class RequestHandler(BaseHTTPRequestHandler):
     # ── CORS ─────────────────────────────────────────────────────────────
 
     def _send_cors_headers(self):
-        """Send permissive CORS headers for cross-origin API access."""
-        self.send_header("Access-Control-Allow-Origin", "*")
+        """Send CORS headers based on configuration."""
+        cfg = get_config()
+        origins = cfg["server"]["cors_origins"]
+        if origins == ["*"]:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        elif origins:
+            origin = self.headers.get("Origin", "")
+            if origin in origins:
+                self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header(
             "Access-Control-Allow-Methods",
             "GET, POST, PATCH, DELETE, OPTIONS",
@@ -221,32 +229,33 @@ class RequestHandler(BaseHTTPRequestHandler):
     # ── Logging ──────────────────────────────────────────────────────────
 
     def log_message(self, format, *args):
-        """Override to suppress default stderr logging.
-
-        Uncomment the line below to enable request logging to stderr:
-            sys.stderr.write(f"[AgentBoard] {self.address_string()} - {format % args}\\n")
-        """
-        pass
+        """Log requests based on configuration (disabled by default)."""
+        cfg = get_config()
+        if cfg["server"]["log_requests"]:
+            sys.stderr.write(f"[AgentBoard] {self.address_string()} - {format % args}\n")
 
 
 # ── Server entry point ───────────────────────────────────────────────────
 
 def main():
     """Start the AgentBoard HTTP server."""
-    port = int(os.environ.get("AGENTBOARD_PORT", DEFAULT_PORT))
-    host = os.environ.get("AGENTBOARD_HOST", "0.0.0.0")
+    cfg = get_config()
+    port = cfg["server"]["port"]
+    host = cfg["server"]["host"]
 
     # Ensure database exists and is migrated
     get_db()
 
     # Print startup banner
     api_key = get_or_create_api_key()
-    db_path = BASE_DIR / "agentboard.db"
+    db_path = cfg["database"]["path"]
+    config_file = BASE_DIR / "agentboard.toml"
 
     print("╔══════════════════════════════════════════╗")
     print("║          AgentBoard v0.1.0               ║")
     print("╠══════════════════════════════════════════╣")
     print(f"║  Database: {str(db_path):<30s}║")
+    print(f"║  Config:   {'agentboard.toml' if config_file.exists() else 'defaults':<30s}║")
     print(f"║  API Key:  {api_key:<30s}║")
     print(f"║  URL:      http://{host}:{port:<19}║")
     print(f"║  Auth:     Bearer {api_key[:20]}...{' ' * max(0, 9 - len(api_key[:20]))}║")

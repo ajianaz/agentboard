@@ -31,21 +31,26 @@ Open **http://localhost:8765** — done. Database is auto-created.
 
 First run prints your API key in the terminal and saves it to `.api_key`. Save it.
 
+**CLI flags** (optional):
+```bash
+python server.py --port 9000 --host 127.0.0.1 --log
+python server.py --config /path/to/agentboard.toml
+```
+
 ## API Key
 
 On first run, AgentBoard auto-generates a cryptographically random API key and:
 
 1. **Prints it to the console** so you can copy it immediately
 2. **Saves it to `.api_key`** in the project root for persistence
-3. **Stores it in `config.yaml`** (if that file exists)
 
 All API requests require the key in the `Authorization` header:
 
 ```
-Authorization: Bearer <your-api-key>
+Authorization: Bearer ***
 ```
 
-You can also set a custom key in `config.yaml` before first run, or override it with the `AGENTBOARD_API_KEY` environment variable.
+You can override it with the `AGENTBOARD_API_KEY` environment variable, or set a custom key file path in `agentboard.toml`.
 
 ## API Overview
 
@@ -220,30 +225,52 @@ Each project can have its own status workflow:
 
 ## Configuration (Optional)
 
-All defaults work without config. Create `config.yaml` to customize:
+All defaults work without a config file. Create `agentboard.toml` to customize:
 
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8765
+```toml
+[server]
+host = "0.0.0.0"
+port = 8765
+cors_origins = ["*"]
+proxy_prefix = ""
+log_requests = false
 
-database:
-  path: "agentboard.db"
+[database]
+path = "agentboard.db"
 
-auth:
-  api_key: ""  # Auto-generated if empty
+[auth]
+api_key_file = ".api_key"
+
+[features]
+export_enabled = true
+import_enabled = true
+```
+
+### Priority: CLI args > env vars > TOML file > defaults
+
+### CLI Flags
+
+```bash
+python server.py --port 9000 --host 127.0.0.1 --log
+python server.py --config /path/to/agentboard.toml
+python server.py -p 9000 -c prod.toml
 ```
 
 ### Environment Variables
 
-Environment variables override `config.yaml` values:
+Environment variables override `agentboard.toml` values:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AGENTBOARD_PORT` | Server port | `8765` |
 | `AGENTBOARD_HOST` | Bind address | `0.0.0.0` |
-| `AGENTBOARD_API_KEY` | API key (overrides config and `.api_key`) | auto-generated |
+| `AGENTBOARD_CONFIG` | Path to `agentboard.toml` | auto-detected |
+| `AGENTBOARD_API_KEY` | API key (overrides `.api_key` file) | auto-generated |
 | `AGENTBOARD_DB_PATH` | Database file path | `agentboard.db` |
+
+### Config is optional
+
+No `agentboard.toml`? No problem. AgentBoard uses built-in defaults and auto-creates everything you need. The config loader uses Python 3.11+ stdlib `tomllib` — still zero pip install.
 
 ## Dark Theme
 

@@ -13,7 +13,10 @@ import secrets
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "agentboard.db"
+# DB_PATH resolved by config module at runtime
+from config import get_config
+
+DB_PATH = None  # set on first get_db() call
 
 SCHEMA_VERSION = 1
 
@@ -171,11 +174,14 @@ def get_db(db_path=None) -> sqlite3.Connection:
     """Get a connection to the database. Auto-creates and migrates on first use.
 
     Args:
-        db_path: Optional path to the database file. Defaults to DB_PATH.
+        db_path: Optional path to the database file. Defaults to config setting.
 
     Returns:
         sqlite3.Connection with WAL mode, foreign keys, and Row factory enabled.
     """
+    global DB_PATH
+    if DB_PATH is None:
+        DB_PATH = get_config()["database"]["path"]
     path = db_path or str(DB_PATH)
     conn = sqlite3.connect(path, timeout=10)
     conn.row_factory = sqlite3.Row

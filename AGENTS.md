@@ -8,6 +8,7 @@
 AgentBoard is a **standalone, multi-project task board** designed for human+AI collaboration.
 
 - **Zero dependencies** — `git clone && python server.py` → works
+- **Zero pip install** — Python 3.11+ stdlib only (`tomllib`, `http.server`)
 - **Single SQLite file** — all data in `agentboard.db`
 - **Vanilla HTML/CSS/JS frontend** — no build step, no npm, no framework
 - **Python stdlib backend** — `http.server` only, no Flask/FastAPI
@@ -24,6 +25,12 @@ python server.py
 ```
 
 First run creates `agentboard.db` with default schema, one default project, and admin setup page.
+
+**CLI flags** (optional, override everything):
+```bash
+python server.py --port 9000 --host 127.0.0.1 --log
+python server.py --config /path/to/custom.toml
+```
 
 ## Architecture
 
@@ -49,6 +56,10 @@ First run creates `agentboard.db` with default schema, one default project, and 
 │  │ Router │ │  Auth  │ │  API   │ │  Static    │  │
 │  │        │ │ Module │ │Routes  │ │  Server    │  │
 │  └────────┘ └────────┘ └────────┘ └────────────┘  │
+│  ┌──────────────────────────────────────────────┐  │
+│  │  config.py — agentboard.toml loader (tomllib) │  │
+│  │  CLI args > env vars > TOML > defaults       │  │
+│  └──────────────────────────────────────────────┘  │
 │         │                                           │
 │         ▼                                           │
 │  ┌──────────────────────────────────────────────┐  │
@@ -63,6 +74,7 @@ First run creates `agentboard.db` with default schema, one default project, and 
 ```
 agentboard/
 ├── server.py              # Entry point, HTTP server, routing
+├── config.py              # Configuration loader (agentboard.toml, tomllib)
 ├── db.py                  # SQLite schema, migrations, queries
 ├── auth.py                # API key auth, session management
 ├── api/
@@ -78,7 +90,8 @@ agentboard/
 ├── static/
 │   └── index.html         # Single-page application (all UI)
 ├── agentboard.db          # SQLite database (auto-created)
-├── config.yaml            # Optional config (all defaults work)
+├── agentboard.toml        # Optional config (all defaults work)
+├── .api_key               # Auto-generated API key (first run)
 ├── AGENTS.md              # THIS FILE
 ├── README.md
 ├── LICENSE                # Apache 2.0
@@ -569,39 +582,74 @@ curl http://localhost:8765/api/tasks/{id} \
 
 ## Configuration
 
-`config.yaml` is optional. All values have defaults:
+Configuration is managed by `config.py` using Python 3.11+ stdlib `tomllib`. **Fully optional** — AgentBoard works with zero config files using built-in defaults.
 
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8765
-  
-database:
-  path: "agentboard.db"
-  
-auth:
-  # Generated on first run if not set
-  api_key: ""
-  
-defaults:
-  project:
-    name: "My Project"
-    statuses:
-      - key: proposed
-        label: Proposed
-        color: "#f59e0b"
-      - key: todo
-        label: To Do
-        color: "#6b7280"
-      - key: in_progress
-        label: In Progress
-        color: "#3b82f6"
-      - key: review
-        label: Review
-        color: "#8b5cf6"
-      - key: done
-        label: Done
-        color: "#22c55e"
+### Priority Hierarchy (highest wins)
+
+1. **CLI arguments** — `--port`, `--host`, `--config`, `--log`
+2. **Environment variables** — `AGENTBOARD_PORT`, `AGENTBOARD_HOST`, `AGENTBOARD_CONFIG`
+3. **`agentboard.toml`** file — project root or path from `--config` / `AGENTBOARD_CONFIG`
+4. **Built-in defaults** — see `config.py DEFAULTS` dict
+
+### Config File Search Order
+
+`config.py` looks for `agentboard.toml` in this order:
+1. Path passed to `--config` CLI flag
+2. Path in `AGENTBOARD_CONFIG` env var
+3. `agentboard.toml` in project root (next to `server.py`)
+
+If none found, defaults are used silently.
+
+### `agentboard.toml` — All Options
+
+```toml
+[server]
+host = "0.0.0.0"              # Bind address
+port = 8765                    # Server port
+cors_origins = ["*"]           # CORS allowed origins
+proxy_prefix = ""              # Reverse proxy path prefix (e.g. "/board")
+log_requests = false           # Enable HTTP request logging
+
+[database]
+path = "agentboard.db"         # SQLite file path (relative to project root)
+
+[auth]
+api_key_file = ".api_key"      # File to store/load API key
+
+[features]
+export_enabled = true           # Enable /api/export endpoints
+import_enabled = true           # Enable /api/import endpoints
+```
+
+### CLI Flags
+
+```bash
+python server.py                    # Use defaults or agentboard.toml
+python server.py --port 9000        # Override port
+python server.py --host 127.0.0.1   # Override host
+python server.py --log              # Enable request logging
+python server.py --config /etc/ab.toml  # Use specific config file
+python server.py -p 9000 -c prod.toml  # Short flags
+```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AGENTBOARD_PORT` | Server port | `8765` |
+| `AGENTBOARD_HOST` | Bind address | `0.0.0.0` |
+| `AGENTBOARD_CONFIG` | Path to `agentboard.toml` | auto-detected |
+| `AGENTBOARD_API_KEY` | API key (overrides `.api_key` file) | auto-generated |
+
+### Config Access in Code
+
+```python
+from config import get_config, reload_config
+
+cfg = get_config()            # Lazy-loaded singleton
+port = cfg["server"]["port"]  # 8765 (or overridden)
+
+reload_config()               # Force re-read (useful in tests)
 ```
 
 ## Development

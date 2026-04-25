@@ -5,7 +5,10 @@ import hmac
 import secrets
 from pathlib import Path
 
-API_KEY_FILE = Path(__file__).parent / ".api_key"
+# API_KEY_FILE resolved by config module at runtime
+from config import get_config
+
+API_KEY_FILE = None  # set on first use
 SESSION_COOKIE = "agentboard_session"
 
 
@@ -22,8 +25,11 @@ def hash_key(key: str) -> str:
 def get_or_create_api_key() -> str:
     """Load existing API key from file, or generate and save a new one.
 
-    The .api_key file is created with 0o600 permissions (owner read/write only).
+    The API key file is created with 0o600 permissions (owner read/write only).
     """
+    global API_KEY_FILE
+    if API_KEY_FILE is None:
+        API_KEY_FILE = get_config()["auth"]["api_key_file"]
     if API_KEY_FILE.exists():
         return API_KEY_FILE.read_text().strip()
     key = generate_api_key()
