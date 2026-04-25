@@ -1,0 +1,12 @@
+# AgentBoard
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.api_key
+*.egg-info/
+dist/
+build/
+.venv/
+.env
+config.yaml
