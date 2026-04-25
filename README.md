@@ -3,7 +3,7 @@
 > Standalone multi-project task board for human+AI collaboration. Agent-native, zero dependencies.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 
 ## What is it?
 
@@ -17,7 +17,7 @@ AgentBoard is a **project board that AI agents can actually use**. It's a single
 - 🔍 **Full-text search** — FTS5-powered search across all tasks and pages
 - 📦 **Export / Import** — Backup and restore projects as JSON
 - 🌙 **Dark theme** — Built-in, no toggle needed
-- 📦 **Zero dependencies** — Python 3.13+ stdlib only, no npm, no build step
+- 📦 **Zero dependencies** — Python 3.11+ stdlib only, no npm, no build step
 
 ## Quick Start
 
@@ -138,7 +138,9 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/setup` | Initial admin setup (first run) |
+| POST | `/api/setup` | Initial admin setup (first run only) |
+
+**Note:** `/api/setup` is a one-time endpoint — it can only be called once after the database is created. To add additional projects afterward, use `POST /api/projects`.
 
 **Total: 31 endpoints**
 
@@ -217,7 +219,7 @@ Each project can have its own status workflow:
 
 | Component | Technology |
 |-----------|------------|
-| Backend | Python 3.13+ stdlib (`http.server`) |
+| Backend | Python 3.11+ stdlib (`http.server`) |
 | Database | SQLite 3.46+ (WAL, FTS5, JSON1) |
 | Frontend | Vanilla HTML/CSS/JS (no framework) |
 | Auth | Bearer token (API key) |
@@ -274,16 +276,11 @@ No `agentboard.toml`? No problem. AgentBoard uses built-in defaults and auto-cre
 
 ## Dark Theme
 
-AgentBoard ships with a built-in dark theme — no configuration needed.
-
-![AgentBoard dark theme screenshot](docs/screenshots/dark-theme.png)
+AgentBoard ships with a built-in dark theme — no configuration needed. Open the app and it's dark by default.
 
 ## Development
 
 ```bash
-# Run dev server (auto-reload on file change)
-python server.py --dev
-
 # Run tests
 python -m pytest tests/ -v
 

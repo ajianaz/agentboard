@@ -183,6 +183,8 @@ def get_db(db_path=None) -> sqlite3.Connection:
     if DB_PATH is None:
         DB_PATH = get_config()["database"]["path"]
     path = db_path or str(DB_PATH)
+    # Ensure parent directory exists
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
