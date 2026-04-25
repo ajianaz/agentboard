@@ -142,6 +142,10 @@ def load_config(cli_args: list | None = None) -> dict:
         config["server"]["port"] = int(os.environ["AGENTBOARD_PORT"])
     if os.environ.get("AGENTBOARD_HOST"):
         config["server"]["host"] = os.environ["AGENTBOARD_HOST"]
+    if os.environ.get("AGENTBOARD_DB_PATH"):
+        config["database"]["path"] = os.environ["AGENTBOARD_DB_PATH"]
+    if os.environ.get("AGENTBOARD_API_KEY_FILE"):
+        config["auth"]["api_key_file"] = os.environ["AGENTBOARD_API_KEY_FILE"]
 
     # 5. CLI argument overrides (highest priority)
     if parsed.port is not None:

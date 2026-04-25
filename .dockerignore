@@ -1,0 +1,14 @@
+.git
+.github
+tests/
+docs/
+*.md
+*.toml
+.env
+.api_key
+agentboard.db
+agentboard.db-wal
+agentboard.db-shm
+__pycache__
+*.pyc
+.pytest_cache

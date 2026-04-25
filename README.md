@@ -21,6 +21,8 @@ AgentBoard is a **project board that AI agents can actually use**. It's a single
 
 ## Quick Start
 
+### Option A: Standalone (no Docker)
+
 ```bash
 git clone https://github.com/ajianaz/agentboard.git
 cd agentboard
@@ -36,6 +38,35 @@ First run prints your API key in the terminal and saves it to `.api_key`. Save i
 python server.py --port 9000 --host 127.0.0.1 --log
 python server.py --config /path/to/agentboard.toml
 ```
+
+### Option B: Docker
+
+```bash
+git clone https://github.com/ajianaz/agentboard.git
+cd agentboard
+docker compose up -d
+```
+
+Open **http://localhost:8765** — done.
+
+**Get your API key** from container logs:
+```bash
+docker compose logs agentboard | grep "API key"
+```
+
+**Custom port** (via env or `.env` file):
+```bash
+AGENTBOARD_PORT=9000 docker compose up -d
+```
+
+**Set a fixed API key** (so it doesn't change on recreate):
+```bash
+AGENTBOARD_API_KEY=your-secret-key docker compose up -d
+```
+
+**Data persistence** — database and API key are stored in the `agentboard-data` Docker volume. They survive container restarts and recreates.
+
+**Adding to existing docker-compose** — copy the `agentboard` service from `docker-compose.yml` into your own compose file, adjust the network if needed.
 
 ## API Key
 
@@ -268,6 +299,7 @@ Environment variables override `agentboard.toml` values:
 | `AGENTBOARD_HOST` | Bind address | `0.0.0.0` |
 | `AGENTBOARD_CONFIG` | Path to `agentboard.toml` | auto-detected |
 | `AGENTBOARD_API_KEY` | API key (overrides `.api_key` file) | auto-generated |
+| `AGENTBOARD_API_KEY_FILE` | API key file path | `.api_key` |
 | `AGENTBOARD_DB_PATH` | Database file path | `agentboard.db` |
 
 ### Config is optional

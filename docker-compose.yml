@@ -1,0 +1,26 @@
+services:
+  agentboard:
+    build: .
+    container_name: agentboard
+    restart: unless-stopped
+    ports:
+      - "${AGENTBOARD_PORT:-8765}:8765"
+    environment:
+      # Database stored in persistent volume
+      - AGENTBOARD_DB_PATH=/app/data/agentboard.db
+      # API key file persisted in same volume
+      - AGENTBOARD_API_KEY_FILE=/app/data/.api_key
+      # Set a fixed API key (optional — auto-generated if omitted)
+      # - AGENTBOARD_API_KEY=your-secret-key-here
+      - TZ=Asia/Jakarta
+    volumes:
+      - agentboard-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8765/')\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  agentboard-data:

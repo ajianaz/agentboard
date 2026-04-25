@@ -1,7 +1,8 @@
-"""auth.py — API key generation, validation, and request auth for AgentBoard."""
+"""auth.py - API key generation, validation, and request auth for AgentBoard."""
 
 import hashlib
 import hmac
+import os
 import secrets
 from pathlib import Path
 
@@ -23,15 +24,28 @@ def hash_key(key: str) -> str:
 
 
 def get_or_create_api_key() -> str:
-    """Load existing API key from file, or generate and save a new one.
+    """Load existing API key from file or env, or generate and save a new one.
+
+    Priority:
+        1. AGENTBOARD_API_KEY environment variable (highest)
+        2. Existing API key file
+        3. Generate new key and save to file
 
     The API key file is created with 0o600 permissions (owner read/write only).
     """
     global API_KEY_FILE
+    # 1. Environment variable override (for Docker / CI)
+    env_key = os.environ.get("AGENTBOARD_API_KEY")
+    if env_key:
+        return env_key
+
+    # 2. Load from file
     if API_KEY_FILE is None:
         API_KEY_FILE = get_config()["auth"]["api_key_file"]
     if API_KEY_FILE.exists():
         return API_KEY_FILE.read_text().strip()
+
+    # 3. Generate and save
     key = generate_api_key()
     API_KEY_FILE.write_text(key)
     API_KEY_FILE.chmod(0o600)
