@@ -5,6 +5,8 @@ docs/
 *.md
 *.toml
 .env
+.env.*
+!.env.example
 .api_key
 agentboard.db
 agentboard.db-wal
@@ -12,3 +14,5 @@ agentboard.db-shm
 __pycache__
 *.pyc
 .pytest_cache
+docs/
+ab-work/

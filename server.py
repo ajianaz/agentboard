@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AgentBoard — Standalone multi-project task board for human+AI collaboration.
+"""AgentBoard - Standalone multi-project task board for human+AI collaboration.
 
 Main entry point. Starts an HTTP server that serves the SPA frontend,
 static assets, and REST API endpoints using only Python 3.13 stdlib.
@@ -14,6 +14,7 @@ Usage:
 import json
 import os
 import sys
+import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
@@ -47,10 +48,18 @@ def _get_api_router():
         raise
 
 
+def _mask_key(key: str) -> str:
+    """Mask API key for safe display: ab_****xxxx."""
+    if not key or len(key) < 8:
+        return "****"
+    prefix = key[:3]   # "ab_"
+    suffix = key[-4:]  # last 4 chars
+    masked_len = max(0, 16 - len(prefix) - len(suffix))
+    return f"{prefix}{'*' * masked_len}{suffix}"
+
+
 class RequestHandler(BaseHTTPRequestHandler):
     """Main request handler with URL routing, auth, CORS, and static file serving."""
-
-    # ── HTTP method dispatchers ──────────────────────────────────────────
 
     def do_GET(self):
         self._route("GET")
@@ -70,8 +79,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.end_headers()
 
-    # ── Core routing ─────────────────────────────────────────────────────
-
     def _route(self, method: str):
         """Parse the request URL, check auth, and dispatch to the appropriate handler."""
         parsed = urlparse(self.path)
@@ -90,7 +97,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
 
         # Auth check for all other routes
-        # Skip auth for /api/setup to allow first-run configuration
         if path != "/api/setup":
             api_key_hash = hash_key(get_or_create_api_key())
             if not check_auth(self.headers, api_key_hash):
@@ -102,13 +108,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         # API routes
         self._handle_api(method, path, query)
 
-    # ── API handler ──────────────────────────────────────────────────────
-
     def _handle_api(self, method: str, path: str, query: dict):
-        """Route API requests to the API router module.
-
-        If the API module is not yet implemented, returns 501 NOT_IMPLEMENTED.
-        """
+        """Route API requests to the API router module."""
         body = self._read_body()
 
         try:
@@ -122,10 +123,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         try:
             result = router.handle(method, path, query, body, self.headers)
         except Exception as exc:
-            # Catch-all for unhandled API errors
+            # Log full traceback to stderr only (never expose to client)
+            traceback.print_exc(file=sys.stderr)
             self._json_response(
-                {"error": "Internal server error", "code": "INTERNAL_ERROR",
-                 "detail": str(exc)},
+                {"error": "Internal server error", "code": "INTERNAL_ERROR"},
                 500,
             )
             return
@@ -138,14 +139,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             status, data = result
             self._json_response(data, status)
 
-    # ── Request body reading ─────────────────────────────────────────────
-
     def _read_body(self) -> bytes:
         """Read the request body based on Content-Length header."""
         length = int(self.headers.get("content-length", 0))
         return self.rfile.read(length) if length > 0 else b""
-
-    # ── Response helpers ─────────────────────────────────────────────────
 
     def _json_response(self, data, status: int = 200):
         """Send a JSON response with CORS headers."""
@@ -158,7 +155,6 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _serve_file(self, filepath: Path, content_type: str):
         """Serve a static file with path security (must be under STATIC_DIR)."""
-        # Security: ensure the resolved path is within STATIC_DIR
         try:
             filepath.resolve().relative_to(STATIC_DIR.resolve())
         except ValueError:
@@ -174,8 +170,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "public, max-age=3600")
         self.end_headers()
         self.wfile.write(filepath.read_bytes())
-
-    # ── CORS ─────────────────────────────────────────────────────────────
 
     def _send_cors_headers(self):
         """Send CORS headers based on configuration."""
@@ -196,8 +190,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             "Authorization, Content-Type, X-Actor",
         )
 
-    # ── MIME type mapping ────────────────────────────────────────────────
-
     @staticmethod
     def _guess_content_type(path: str) -> str:
         """Map file extensions to MIME types."""
@@ -217,7 +209,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             ".woff": "font/woff",
             ".woff2": "font/woff2",
             ".ttf": "font/ttf",
-            ".eot": "application/vnd.ms-fontobject",
+            ".eot": "application/vnd.ms-font-object",
             ".txt": "text/plain; charset=utf-8",
             ".md": "text/markdown; charset=utf-8",
             ".xml": "application/xml",
@@ -226,8 +218,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         ext = Path(path).suffix.lower()
         return types.get(ext, "application/octet-stream")
 
-    # ── Logging ──────────────────────────────────────────────────────────
-
     def log_message(self, format, *args):
         """Log requests based on configuration (disabled by default)."""
         cfg = get_config()
@@ -235,31 +225,30 @@ class RequestHandler(BaseHTTPRequestHandler):
             sys.stderr.write(f"[AgentBoard] {self.address_string()} - {format % args}\n")
 
 
-# ── Server entry point ───────────────────────────────────────────────────
-
 def main():
     """Start the AgentBoard HTTP server."""
     cfg = get_config()
     port = cfg["server"]["port"]
     host = cfg["server"]["host"]
+    verbose = cfg["server"]["log_requests"]
 
     # Ensure database exists and is migrated
     get_db()
 
-    # Print startup banner
+    # Load API key (for banner display — always masked)
     api_key = get_or_create_api_key()
     db_path = cfg["database"]["path"]
     config_file = BASE_DIR / "agentboard.toml"
 
-    print("╔══════════════════════════════════════════╗")
-    print("║          AgentBoard v0.1.0               ║")
-    print("╠══════════════════════════════════════════╣")
-    print(f"║  Database: {str(db_path):<30s}║")
-    print(f"║  Config:   {'agentboard.toml' if config_file.exists() else 'defaults':<30s}║")
-    print(f"║  API Key:  {api_key:<30s}║")
-    print(f"║  URL:      http://{host}:{port:<19}║")
-    print(f"║  Auth:     Bearer {api_key[:20]}...{' ' * max(0, 9 - len(api_key[:20]))}║")
-    print("╚══════════════════════════════════════════╝")
+    print()
+    print("  AgentBoard v0.1.0")
+    print(f"  Database : {db_path}")
+    print(f"  Config   : {'agentboard.toml' if config_file.exists() else 'defaults'}")
+    print(f"  API Key  : {_mask_key(api_key)}")
+    print(f"  URL      : http://{host}:{port}")
+    if verbose:
+        print(f"  Logging  : ENABLED")
+        print(f"  Key file : {cfg['auth']['api_key_file']}")
     print()
     print("Server started. Press Ctrl+C to stop.")
 
