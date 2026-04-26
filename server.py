@@ -241,7 +241,7 @@ def main():
     config_file = BASE_DIR / "agentboard.toml"
 
     print()
-    print("  AgentBoard v0.1.0")
+    print("  AgentBoard v1.0.0")
     print(f"  Database : {db_path}")
     print(f"  Config   : {'agentboard.toml' if config_file.exists() else 'defaults'}")
     print(f"  API Key  : {_mask_key(api_key)}")

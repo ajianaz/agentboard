@@ -339,7 +339,7 @@ AGENTBOARD_PORT=9000 python server.py
 
 ## Quality Assurance
 
-Standalone build tested on develop branch (commit `898b1d1`):
+Standalone build tested for v1.0.0 release:
 
 | Test Category | Result | Details |
 |---------------|--------|---------|

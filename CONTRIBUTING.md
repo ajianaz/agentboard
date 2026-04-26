@@ -8,7 +8,13 @@ Thanks for your interest! Here's how to contribute.
 git clone https://github.com/ajianaz/agentboard.git
 cd agentboard
 python -m pytest tests/ -v  # Verify tests pass
-python server.py            # Start dev server
+python server.py            # Start dev server (http://localhost:8765)
+```
+
+**Docker (optional):**
+```bash
+cp .env.example .env
+docker compose up -d
 ```
 
 ## Branch Strategy
