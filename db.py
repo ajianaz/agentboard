@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -218,6 +218,16 @@ def _run_migrations(conn: sqlite3.Connection, from_ver: int, to_ver: int):
     migrations = {
         2: """ALTER TABLE tasks ADD COLUMN parent_id TEXT REFERENCES tasks(id);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);""",
+        3: """CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    key_hash TEXT NOT NULL UNIQUE,
+    label TEXT DEFAULT 'default',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_used_at TEXT,
+    grace_until TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);""",
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)

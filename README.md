@@ -115,6 +115,47 @@ public_read = false
 
 You can override the API key with the `AGENTBOARD_API_KEY` environment variable, or set a custom key file path in `agentboard.toml`.
 
+### Multi-Key Auth & Rotation (v1.2.0)
+
+AgentBoard supports multiple API keys with rotation and grace periods:
+
+- **Keys stored hashed** — raw key is shown only once on creation
+- **Grace period** — deactivated keys work for N minutes before being fully rejected
+- **Last key protection** — cannot delete the last active key
+- **Legacy migration** — existing `.api_key` file is auto-imported on first v3 schema boot
+
+Manage keys via the **⚙️ Settings** page in the UI, or the API:
+
+```bash
+# Create a new key
+curl -X POST http://localhost:8765/api/auth/keys \
+  -H "Authorization: Bearer ***" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "ci-bot"}'
+# → {"key": "ab_xxx...", "warning": "Save this key now"}
+
+# Deactivate with 5-minute grace
+curl -X PATCH http://localhost:8765/api/auth/keys/{id} \
+  -H "Authorization: Bearer ***" \
+  -H "Content-Type: application/json" \
+  -d '{"deactivate": true, "grace_minutes": 5}'
+```
+
+### Maintenance Mode
+
+Enable maintenance mode to block all write operations (reads continue normally):
+
+```bash
+# Enable via environment
+AGENTBOARD_MAINTENANCE=true python server.py
+
+# Or in agentboard.toml
+[server]
+maintenance = true
+```
+
+All POST/PATCH/DELETE requests return `503 MAINTENANCE` when enabled. Health check (`/api/health`) reflects the current status.
+
 ### Auth Summary
 
 | Request Type | Auth Required | Behavior |
@@ -216,12 +257,12 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 
 ## Agent Integration
 
-Any AI agent (Claude, GPT, local LLM, custom) can interact via REST API:
+Any AI agent (Claude, GPT, local LLM, custom) can interact via REST API. This repo includes a **ready-to-use agent skill** in `skills/agentboard/` — just clone and read `SKILL.md` to get started.
 
 ```bash
 # Agent creates a task (proposed → needs human approval)
 curl -X POST http://localhost:8765/api/projects/my-project/tasks \
-  -H "Authorization: Bearer <api-key>" \
+  -H "Authorization: Bearer ab_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Write launch email",
@@ -232,8 +273,10 @@ curl -X POST http://localhost:8765/api/projects/my-project/tasks \
 
 # Agent checks for feedback on HITL decisions
 curl "http://localhost:8765/api/tasks?project=all&assignee=email-agent" \
-  -H "Authorization: Bearer <api-key>"
+  -H "Authorization: Bearer ab_YOUR_KEY"
 ```
+
+**Read [`skills/agentboard/SKILL.md`](skills/agentboard/SKILL.md) for the complete agent integration guide** — includes all 31 endpoints, code examples, HITL workflows, and troubleshooting.
 
 **Read [AGENTS.md](AGENTS.md) for the complete API reference and agent workflow guide.**
 
@@ -360,6 +403,20 @@ python -m pytest tests/ -v
 # Run with custom port
 AGENTBOARD_PORT=9000 python server.py
 ```
+
+## Development (Side-by-Side with Production)
+
+To develop alongside a running production instance:
+
+```bash
+git clone -b develop https://github.com/ajianaz/agentboard.git /opt/data/agentboard-dev
+cd /opt/data/agentboard-dev
+AGENTBOARD_PORT=8766 python3 server.py
+```
+
+Production and development are fully isolated — separate databases,
+separate API keys, separate ports. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for full development setup.
 
 ## Quality Assurance
 

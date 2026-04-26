@@ -36,6 +36,18 @@ cp .env.example .env
 docker compose up -d
 ```
 
+### Side-by-Side with Production
+
+If AgentBoard is already running in production, use a separate clone:
+
+```bash
+git clone -b develop https://github.com/ajianaz/agentboard.git /opt/data/agentboard-dev
+cd /opt/data/agentboard-dev
+AGENTBOARD_PORT=8766 python3 server.py   # Different port, different DB
+```
+
+This ensures production database and API key are never affected by development.
+
 ## Branch Strategy
 
 - `main` — production releases. **NEVER push directly** — always via PR
@@ -83,3 +95,13 @@ Use GitHub Issues with the provided templates. Include:
 - Expected vs actual behavior
 - Python version
 - Browser (if frontend issue)
+
+## Schema Migrations
+
+When adding database changes:
+
+1. Increment `SCHEMA_VERSION` in `db.py`
+2. Add migration SQL to the `migrations` dict in `_run_migrations()`
+3. Update the schema docs in `AGENTS.md`
+4. Test migration from previous version (create DB with old schema, upgrade)
+5. Migration must be backward-compatible (additive only, no column drops)

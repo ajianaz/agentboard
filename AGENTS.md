@@ -24,13 +24,40 @@ python server.py
 # Open http://localhost:8765
 ```
 
-First run creates `agentboard.db` with default schema, one default project, and admin setup page.
+First run creates `agentboard.db` with default schema (v3), imports legacy API key, one default project, and admin setup page.
 
 **CLI flags** (optional, override everything):
 ```bash
 python server.py --port 9000 --host 127.0.0.1 --log
 python server.py --config /path/to/custom.toml
 ```
+
+## Agent Skill
+
+This repository includes a **ready-to-use agent skill** in `skills/agentboard/`. Any AI agent that clones this repo can immediately interact with the board via API.
+
+**Quick setup for agents:**
+```bash
+# 1. Read the skill
+cat skills/agentboard/SKILL.md
+
+# 2. Get API key
+KEY=$(cat .api_key)
+
+# 3. Start interacting
+curl -H "Authorization: Bearer $KEY" http://localhost:8765/api/stats
+```
+
+**Skill contents:**
+| File | Purpose |
+|------|---------|
+| [`skills/agentboard/SKILL.md`](skills/agentboard/SKILL.md) | Hub — triggers, quick reference, rules |
+| [`skills/agentboard/references/api_reference.md`](skills/agentboard/references/api_reference.md) | All 31 endpoints documented |
+| [`skills/agentboard/references/code_examples.md`](skills/agentboard/references/code_examples.md) | Python & curl snippets |
+| [`skills/agentboard/references/workflows.md`](skills/agentboard/references/workflows.md) | HITL, reporting, backup workflows |
+| [`skills/agentboard/references/pitfalls.md`](skills/agentboard/references/pitfalls.md) | Gotchas and troubleshooting |
+
+The skill is self-contained — no installation, no dependencies. Just read `SKILL.md` and start using the API.
 
 ## Architecture
 
@@ -64,7 +91,7 @@ python server.py --config /path/to/custom.toml
 │         ▼                                           │
 │  ┌──────────────────────────────────────────────┐  │
 │  │            agentboard.db (SQLite WAL)         │  │
-│  │  projects │ tasks │ pages │ agents │ activity  │  │
+│  │  projects │ tasks │ pages │ agents │ activity │ api_keys │  │
 │  └──────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────┘
 ```
@@ -86,13 +113,22 @@ agentboard/
 │   ├── comments.py        # Task/page comments
 │   ├── activity.py        # Activity log
 │   ├── search.py          # FTS5 search
-│   └── export.py          # Export/import endpoints
+│   ├── export.py          # Export/import endpoints
+│   └── auth_keys.py        # API key CRUD & rotation
 ├── static/
 │   └── index.html         # Single-page application (all UI)
 ├── tests/
 │   ├── conftest.py        # Shared pytest fixtures (db_conn, api_key)
 │   ├── test_db.py         # Schema, tables, FTS5, gen_id, slugify (7 tests)
 │   └── test_auth.py       # Key gen, hashing, validation, header parsing (10 tests)
+├── skills/
+│   └── agentboard/       # Agent integration skill
+│       ├── SKILL.md      # Skill hub — read this first
+│       └── references/
+│           ├── api_reference.md    # All 31 API endpoints
+│           ├── code_examples.md    # Python & curl snippets
+│           ├── workflows.md        # Common agent workflows
+│           └── pitfalls.md         # Gotchas & troubleshooting
 ├── agentboard.db          # SQLite database (auto-created, gitignored)
 ├── agentboard.toml        # Optional config (all defaults work)
 ├── .api_key               # Auto-generated API key (first run, gitignored)
@@ -186,6 +222,53 @@ services:
     #   - "traefik.enable=true"
     #   - "traefik.http.routers.agentboard.rule=Host(`board.example.com`)"
     #   - "traefik.http.services.agentboard.loadbalancer.server.port=8765"
+```
+
+## Development Environment (Side-by-Side with Production)
+
+For live production systems, always develop in a separate clone to avoid
+affecting production data:
+
+```bash
+# Production (DO NOT modify directly for development)
+/opt/data/agentboard/       ← running, has real data
+
+# Development (separate clone)
+git clone -b develop https://github.com/ajianaz/agentboard.git /opt/data/agentboard-dev
+cd /opt/data/agentboard-dev
+
+# Dev uses different port and DB automatically
+AGENTBOARD_PORT=8766 AGENTBOARD_DB_PATH=agentboard-dev.db python3 server.py
+# → http://127.0.0.1:8766
+```
+
+### Isolation Guarantees
+
+| Resource | Production | Development |
+|----------|-----------|-------------|
+| Directory | `/opt/data/agentboard/` | `/opt/data/agentboard-dev/` |
+| Port | 8765 (default) | 8766 (or any free port) |
+| Database | `agentboard.db` | `agentboard-dev.db` |
+| API Key | `.api_key` | `.api_key` (auto-generated) |
+
+### Deploy Workflow
+
+```bash
+# 1. Develop and test in /opt/data/agentboard-dev
+# 2. Push to develop → CI passes → merge to main
+# 3. In production:
+cd /opt/data/agentboard
+git pull                          # Update code (DB untouched)
+docker compose restart            # Or: python3 server.py
+# 4. Verify: check health endpoint and dashboard
+```
+
+### Rollback
+
+```bash
+cd /opt/data/agentboard
+git checkout v1.0.0               # Pin to known-good version
+docker compose restart
 ```
 
 ## Database Schema
@@ -308,6 +391,24 @@ CREATE INDEX idx_activity_project ON activity(project_id);
 CREATE INDEX idx_activity_created ON activity(created_at DESC);
 ```
 
+
+### API Keys (multi-key auth, schema v3)
+
+```sql
+CREATE TABLE api_keys (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    key_hash TEXT NOT NULL UNIQUE,
+    label TEXT DEFAULT 'default',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_used_at TEXT,
+    grace_until TEXT
+);
+CREATE INDEX idx_api_keys_active ON api_keys(is_active);
+```
+
+**Key rotation:** Keys are stored hashed (SHA-256). Raw keys are shown only once on creation. Deactivated keys can have a grace period (configurable minutes) during which they still authenticate. The last active key cannot be deleted.
+
 ### FTS5 Search
 
 ```sql
@@ -340,6 +441,8 @@ All API endpoints return JSON.
 | `PATCH /api/*` | ✅ Yes | Update resources |
 | `DELETE /api/*` | ✅ Yes | Delete resources |
 | `POST /api/setup` | ❌ No | First-run setup (always public) |
+| `GET /api/auth/*` | ✅ Yes | Key management (always protected) |
+| `GET /api/health` | ❌ No | Health check (always public) |
 
 **Public read** is enabled by default. Write operations require: `Authorization: Bearer <api_key>`
 
@@ -579,6 +682,63 @@ curl -X POST http://localhost:8765/api/import \
   -d "{\"data\": $(cat backup.json)}"
 ```
 
+
+### Health Check
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Server health + maintenance status |
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "maintenance": false,
+  "version": "1.1.0"
+}
+```
+
+When maintenance mode is active:
+```json
+{
+  "status": "maintenance",
+  "maintenance": true,
+  "version": "1.1.0"
+}
+```
+
+### Auth Keys (API Key Management)
+
+All `/api/auth/*` routes **always require authentication** (even when `public_read=true`).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/auth/keys` | List all keys (hashed, never raw) |
+| POST | `/api/auth/keys` | Create new key (raw key shown once) |
+| PATCH | `/api/auth/keys/{id}` | Update label, deactivate/activate |
+| DELETE | `/api/auth/keys/{id}` | Delete key (blocks last active) |
+
+**Create key:**
+```json
+POST /api/auth/keys
+{"label": "claude-code"}
+// Response (raw key shown ONLY here):
+{"id": "abc...", "label": "claude-code", "key": "ab_xxx...", "warning": "Save this key now — it cannot be retrieved again."}
+```
+
+**Deactivate with grace period:**
+```json
+PATCH /api/auth/keys/{id}
+{"deactivate": true, "grace_minutes": 5}
+// Key continues to work for 5 minutes, then is fully rejected
+```
+
+**Activate:**
+```json
+PATCH /api/auth/keys/{id}
+{"is_active": true}
+```
+
 ## Agent Workflow
 
 ### For AI agents reading this:
@@ -697,6 +857,7 @@ port = 8765                    # Server port
 cors_origins = ["*"]           # CORS allowed origins
 proxy_prefix = ""              # Reverse proxy path prefix (e.g. "/board")
 log_requests = false           # Enable HTTP request logging
+maintenance = false            # Maintenance mode (all writes return 503)
 
 [database]
 path = "agentboard.db"         # SQLite file path (relative to project root)
@@ -731,6 +892,8 @@ python server.py -p 9000 -c prod.toml  # Short flags
 | `AGENTBOARD_API_KEY` | API key (overrides `.api_key` file) | auto-generated |
 | `AGENTBOARD_API_KEY_FILE` | API key file path | `.api_key` |
 | `AGENTBOARD_DB_PATH` | Database file path | `agentboard.db` |
+| `AGENTBOARD_PUBLIC_READ` | Allow GET without auth | `true` |
+| `AGENTBOARD_MAINTENANCE` | Enable maintenance mode | `false` |
 | `TZ` | Timezone for timestamps | `UTC` |
 
 ### Config Access in Code
@@ -816,6 +979,8 @@ python -m pytest tests/test_auth.py -v
 | `VALIDATION_ERROR` | 400 | Invalid request body |
 | `SLUG_EXISTS` | 409 | Project slug already taken |
 | `DB_ERROR` | 500 | Database operation failed |
+| `MAINTENANCE` | 503 | Server in maintenance mode (writes blocked) |
+| `LAST_KEY` | 409 | Cannot delete the last active API key |
 
 ## Testing
 
