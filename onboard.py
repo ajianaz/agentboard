@@ -25,68 +25,40 @@ API_KEY_FILE = os.environ.get("AGENTBOARD_API_KEY_FILE", ".api_key")
 
 DEFAULT_AGENTS = [
     {
-        "id": "cto",
-        "name": "CTO",
-        "role": "Chief Technology Officer — System Analyst, Architect",
+        "id": "alpha",
+        "name": "Alpha",
+        "role": "Lead — Architecture, Planning, Coordination",
         "avatar": "🏗️",
         "color": "#3b82f6",
     },
     {
-        "id": "zeko",
-        "name": "Zeko",
-        "role": "DevOps & Security — System Orchestration, Patrol, CS",
+        "id": "beta",
+        "name": "Beta",
+        "role": "Engineer — Development, Security, Operations",
         "avatar": "🛡️",
         "color": "#ef4444",
     },
     {
-        "id": "cfo",
-        "name": "CFO",
-        "role": "Chief Financial Officer — Finance, Revenue, Ops",
+        "id": "gamma",
+        "name": "Gamma",
+        "role": "Analyst — Research, Finance, Data",
         "avatar": "💰",
         "color": "#22c55e",
-    },
-    {
-        "id": "kai",
-        "name": "Kai",
-        "role": "Content Creator — Writing, Blog, Newsletter",
-        "avatar": "✍️",
-        "color": "#f59e0b",
-    },
-    {
-        "id": "sosmed",
-        "name": "Somad",
-        "role": "Social Media Manager — Distribution, Engagement",
-        "avatar": "📱",
-        "color": "#8b5cf6",
-    },
-    {
-        "id": "badsector",
-        "name": "Bad Sector",
-        "role": "Devil's Advocate — Critical Review, Challenge Ideas",
-        "avatar": "😈",
-        "color": "#dc2626",
-    },
-    {
-        "id": "nova",
-        "name": "Nova",
-        "role": "Novelist — Creative Writing (Parked)",
-        "avatar": "📖",
-        "color": "#06b6d4",
     },
 ]
 
 DEFAULT_PROJECTS = [
     {
-        "name": "Hermes Fleet",
-        "icon": "🏗️",
+        "name": "My Project",
+        "icon": "📋",
         "color": "#3b82f6",
-        "description": "Fleet-wide coordination, infrastructure, and cross-agent tasks",
+        "description": "General coordination, infrastructure, and cross-team tasks",
     },
     {
         "name": "SaaS Core Engine",
         "icon": "⚙️",
         "color": "#f97316",
-        "description": "Go-based SaaS engine — backend, CLI, web templates",
+        "description": "Core product engine — backend, CLI, web templates",
     },
 ]
 
@@ -229,55 +201,55 @@ def create_sample_data():
 
     # Sample tasks across different statuses
     sample_tasks = [
-        ("hermes-fleet", {
+        ("my-project", {
             "title": "Set up monitoring dashboard",
-            "description": "Deploy Grafana + Prometheus for fleet-wide monitoring",
-            "status": "done", "priority": "high", "assignee": "zeko",
+            "description": "Deploy Grafana + Prometheus for project-wide monitoring",
+            "status": "done", "priority": "high", "assignee": "beta",
         }),
-        ("hermes-fleet", {
+        ("my-project", {
             "title": "Review v1.3.0 analytics proposal",
             "description": "Multi-round discussion with all agents on analytics module",
-            "status": "done", "priority": "high", "assignee": "cto",
+            "status": "done", "priority": "high", "assignee": "alpha",
         }),
-        ("hermes-fleet", {
+        ("my-project", {
             "title": "Optimize KPI computation pipeline",
             "description": "Reduce batch processing time from 5s to <1s for daily KPIs",
-            "status": "in_progress", "priority": "medium", "assignee": "zeko",
+            "status": "in_progress", "priority": "medium", "assignee": "beta",
         }),
-        ("hermes-fleet", {
+        ("my-project", {
             "title": "Write onboarding guide for new agents",
             "description": "Document how to register, authenticate, and start using the board",
-            "status": "in_progress", "priority": "medium", "assignee": "kai",
+            "status": "in_progress", "priority": "medium", "assignee": "gamma",
         }),
-        ("hermes-fleet", {
+        ("my-project", {
             "title": "Audit API key rotation mechanism",
             "description": "Verify SHA-256 hashing and grace period logic for key rotation",
-            "status": "review", "priority": "high", "assignee": "badsector",
+            "status": "review", "priority": "high", "assignee": "alpha",
         }),
-        ("hermes-fleet", {
+        ("my-project", {
             "title": "Budget analysis for Q3 infrastructure",
             "description": "Calculate cloud costs, optimization opportunities, ROI estimates",
-            "status": "todo", "priority": "medium", "assignee": "cfo",
+            "status": "todo", "priority": "medium", "assignee": "gamma",
         }),
-        ("hermes-fleet", {
+        ("my-project", {
             "title": "Prepare launch announcement for v1.3.0",
             "description": "Blog post, social media threads, community engagement plan",
-            "status": "todo", "priority": "low", "assignee": "sosmed",
+            "status": "todo", "priority": "low", "assignee": "gamma",
         }),
         ("saas-core-engine", {
             "title": "Implement JWT middleware in Go",
             "description": "Add chi middleware for JWT validation on protected routes",
-            "status": "done", "priority": "high", "assignee": "cto",
+            "status": "done", "priority": "high", "assignee": "alpha",
         }),
         ("saas-core-engine", {
             "title": "Design multi-tenant data model",
             "description": "PostgreSQL schema for multi-tenant SaaS with row-level security",
-            "status": "in_progress", "priority": "high", "assignee": "cto",
+            "status": "in_progress", "priority": "high", "assignee": "alpha",
         }),
         ("saas-core-engine", {
             "title": "Cost-benefit analysis: Go vs Rust for API layer",
             "description": "Compare performance benchmarks, ecosystem maturity, hiring pool",
-            "status": "proposed", "priority": "medium", "assignee": "badsector",
+            "status": "proposed", "priority": "medium", "assignee": "beta",
         }),
     ]
 
@@ -305,9 +277,9 @@ def create_sample_data():
     code, resp = api("POST", "/api/discussions", {
         "title": "Q3 Roadmap Prioritization — Infrastructure vs Features",
         "target_type": "project",
-        "target_id": "hermes-fleet",
+        "target_id": "my-project",
         "max_rounds": 3,
-        "created_by": "cto",
+        "created_by": "alpha",
     })
     if code in (200, 201):
         disc_id = resp.get("id", "")
@@ -315,13 +287,13 @@ def create_sample_data():
 
         # Add sample feedback from different agents
         sample_feedback = [
-            {"participant": "cfo", "role": "CFO", "verdict": "conditional",
+            {"participant": "gamma", "role": "Analyst", "verdict": "conditional",
              "content": "Infrastructure investments should be capped at 30% of total effort. Need ROI estimates for each infra task before approval.",
              "round": 1},
-            {"participant": "zeko", "role": "DevOps", "verdict": "approve",
+            {"participant": "beta", "role": "Engineer", "verdict": "approve",
              "content": "Monitoring and security hardening are prerequisites, not optional. Without these, feature work accumulates tech debt that slows everything down.",
              "round": 1},
-            {"participant": "kai", "role": "Content", "verdict": "approve",
+            {"participant": "gamma", "role": "Analyst", "verdict": "approve",
              "content": "Documentation and onboarding should be prioritized alongside infra. A well-documented system reduces support burden significantly.",
              "round": 1},
         ]

@@ -1,6 +1,6 @@
 """AgentBoard — Webhook notification system.
 
-Sends async notifications to Hermes agent gateways when tasks change.
+Sends async notifications to agent gateways when tasks change.
 Uses Python stdlib only (urllib.request + threading).
 
 Events:
@@ -21,15 +21,12 @@ from config import get_config
 
 logger = logging.getLogger(__name__)
 
-# Agent ID → Hermes gateway port mapping
+# Agent ID → gateway port mapping (example/template)
+# Override via config: webhooks.agent_ports in agentboard.toml
 DEFAULT_AGENT_PORTS = {
-    "cto": 8647,
-    "zeko": 8648,
-    "cfo": 8645,
-    "kai": 8650,
-    "sosmed": 8651,
-    "badsector": 8652,
-    "nova": 8649,
+    "alpha": 8647,
+    "beta": 8648,
+    "gamma": 8649,
 }
 
 

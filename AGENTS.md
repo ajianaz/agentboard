@@ -172,8 +172,8 @@ AgentBoard supports Docker as an **optional** deployment method. Standalone (`py
 
 ```bash
 # 1. Clone to deployment directory
-git clone https://github.com/ajianaz/agentboard.git /opt/data/agentboard
-cd /opt/data/agentboard
+git clone https://github.com/ajianaz/agentboard.git ~/agentboard
+cd ~/agentboard
 
 # 2. Create env file
 cp .env.example .env
@@ -188,8 +188,8 @@ docker compose up -d
 | Aspect | Detail |
 |--------|--------|
 | **Image** | `ghcr.io/ajianaz/agentboard:latest` (main) or `:develop` (dev) |
-| **WORKDIR** | `/opt/data/agentboard` |
-| **Data persistence** | Bind mount `.:/opt/data/agentboard` — DB, API key, config survive restarts |
+| **WORKDIR** | `/app` |
+| **Data persistence** | Bind mount `.:/app` — DB, API key, config survive restarts |
 | **Healthcheck** | `python3 -c "import urllib.request; ..."` (zero-dep, no curl needed) |
 | **Env config** | `env_file: ./.env` — all vars optional, see `.env.example` |
 | **Reverse proxy** | Traefik labels commented in docker-compose.yml — uncomment for public deployment |
@@ -197,10 +197,10 @@ docker compose up -d
 
 ### Bind Mount Pattern
 
-The bind mount `.:/opt/data/agentboard` maps the host directory 1:1 to the container WORKDIR:
+The bind mount `.:/app` maps the host directory 1:1 to the container WORKDIR:
 
 ```
-Host (/opt/data/agentboard/)     Container (/opt/data/agentboard/)
+Host (~/agentboard/)           Container (/app/)
 ├── .env                         ├── .env          ← env vars
 ├── agentboard.db                ├── agentboard.db ← SQLite data
 ├── .api_key                     ├── .api_key      ← auth key
@@ -217,7 +217,7 @@ services:
     image: ghcr.io/ajianaz/agentboard:latest
     env_file: ./.env
     volumes:
-      - .:/opt/data/agentboard
+      - .:/app
     ports:
       - "8765:8765"
     healthcheck:
@@ -241,11 +241,11 @@ affecting production data:
 
 ```bash
 # Production (DO NOT modify directly for development)
-/opt/data/agentboard/       ← running, has real data
+~/agentboard/               ← running, has real data
 
 # Development (separate clone)
-git clone -b develop https://github.com/ajianaz/agentboard.git /opt/data/agentboard-dev
-cd /opt/data/agentboard-dev
+git clone -b develop https://github.com/ajianaz/agentboard.git ~/agentboard-dev
+cd ~/agentboard-dev
 
 # Dev uses different port and DB automatically
 AGENTBOARD_PORT=8766 AGENTBOARD_DB_PATH=agentboard-dev.db python3 server.py
@@ -256,7 +256,7 @@ AGENTBOARD_PORT=8766 AGENTBOARD_DB_PATH=agentboard-dev.db python3 server.py
 
 | Resource | Production | Development |
 |----------|-----------|-------------|
-| Directory | `/opt/data/agentboard/` | `/opt/data/agentboard-dev/` |
+| Directory | `~/agentboard/` | `~/agentboard-dev/` |
 | Port | 8765 (default) | 8766 (or any free port) |
 | Database | `agentboard.db` | `agentboard-dev.db` |
 | API Key | `.api_key` | `.api_key` (auto-generated) |
@@ -264,10 +264,10 @@ AGENTBOARD_PORT=8766 AGENTBOARD_DB_PATH=agentboard-dev.db python3 server.py
 ### Deploy Workflow
 
 ```bash
-# 1. Develop and test in /opt/data/agentboard-dev
+# 1. Develop and test in ~/agentboard-dev
 # 2. Push to develop → CI passes → merge to main
 # 3. In production:
-cd /opt/data/agentboard
+cd ~/agentboard
 git pull                          # Update code (DB untouched)
 docker compose restart            # Or: python3 server.py
 # 4. Verify: check health endpoint and dashboard
@@ -276,7 +276,7 @@ docker compose restart            # Or: python3 server.py
 ### Rollback
 
 ```bash
-cd /opt/data/agentboard
+cd ~/agentboard
 git checkout v1.0.0               # Pin to known-good version
 docker compose restart
 ```
@@ -944,7 +944,7 @@ git checkout -b feat/my-feature main
 
 **Safer alternative:** Clone to a separate directory for development:
 ```bash
-git clone /opt/data/agentboard /tmp/agentboard-dev
+git clone ~/agentboard /tmp/agentboard-dev
 cd /tmp/agentboard-dev && git checkout -b feat/my-feature
 ```
 
