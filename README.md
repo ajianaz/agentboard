@@ -194,12 +194,12 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 
 ## Agent Integration
 
-Any AI agent (Claude, GPT, local LLM, custom) can interact via REST API:
+Any AI agent (Claude, GPT, local LLM, custom) can interact via REST API. This repo includes a **ready-to-use agent skill** in `skills/agentboard/` — just clone and read `SKILL.md` to get started.
 
 ```bash
 # Agent creates a task (proposed → needs human approval)
 curl -X POST http://localhost:8765/api/projects/my-project/tasks \
-  -H "Authorization: Bearer <api-key>" \
+  -H "Authorization: Bearer ab_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Write launch email",
@@ -210,8 +210,10 @@ curl -X POST http://localhost:8765/api/projects/my-project/tasks \
 
 # Agent checks for feedback on HITL decisions
 curl "http://localhost:8765/api/tasks?project=all&assignee=email-agent" \
-  -H "Authorization: Bearer <api-key>"
+  -H "Authorization: Bearer ab_YOUR_KEY"
 ```
+
+**Read [`skills/agentboard/SKILL.md`](skills/agentboard/SKILL.md) for the complete agent integration guide** — includes all 31 endpoints, code examples, HITL workflows, and troubleshooting.
 
 **Read [AGENTS.md](AGENTS.md) for the complete API reference and agent workflow guide.**
 
