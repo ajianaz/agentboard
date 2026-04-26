@@ -6,8 +6,8 @@
 #   3. Uncomment Traefik labels below and set env vars
 #   4. docker compose up -d
 #
-# All data (DB, API key, config) lives in /opt/data/agentboard
-# via bind mount. Survives container restart/recreate.
+# All data (DB, API key, config) lives in the bind-mounted directory
+# and survives container restart/recreate.
 
 services:
   agentboard:
@@ -23,11 +23,11 @@ services:
     env_file: ./.env
 
     # Bind mount: host directory → container WORKDIR
-    # Host:  /opt/data/agentboard (where this docker-compose.yml lives)
-    # Guest: /opt/data/agentboard (Dockerfile WORKDIR)
+    # Host:  . (where this docker-compose.yml lives)
+    # Guest: /app (Dockerfile WORKDIR)
     # All runtime data (.db, .api_key, .env) persists here.
     volumes:
-      - .:/opt/data/agentboard
+      - .:/app
 
     ports:
       - "${AGENTBOARD_PORT:-8765}:8765"

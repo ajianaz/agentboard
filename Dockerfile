@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-WORKDIR /opt/data/agentboard
+WORKDIR /app
 
 COPY server.py config.py db.py auth.py ./
 COPY api/ ./api/

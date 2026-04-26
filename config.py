@@ -50,13 +50,9 @@ DEFAULTS = {
         "enabled": False,
         "timeout": 5,
         "agent_ports": {
-            "cto": 8647,
-            "zeko": 8648,
-            "cfo": 8645,
-            "kai": 8650,
-            "sosmed": 8651,
-            "badsector": 8652,
-            "nova": 8649,
+            "alpha": 8647,
+            "beta": 8648,
+            "gamma": 8649,
         },
     },
     "analytics": {
