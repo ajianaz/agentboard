@@ -225,7 +225,7 @@ select{appearance:auto}
 /* Toast */
 #toast-c{position:fixed;bottom:20px;right:20px;z-index:70;display:flex;flex-direction:column;gap:8px}
 .toast{padding:10px 16px;border-radius:var(--rs);font-size:13px;color:#fff;animation:toastin .2s ease;box-shadow:var(--sh)}
-.toast-ok{background:var(--ok)}.toast-err{background:var(--err)}.toast-info{background:var(--ac)}
+.toast-ok{background:var(--ok)}.toast-err{background:var(--err)}.toast-info{background:var(--ac)}.toast-warn{background:var(--warn)}
 @keyframes toastin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 
 /* Empty state */
@@ -261,7 +261,7 @@ select{appearance:auto}
   <a href="#settings">⚙️ Settings</a>
   <div class="sb-foot">
     <span id="sb-auth" style="cursor:pointer" onclick="showSetup()" title="Click to manage API key">🔓 Read-only</span>
-    <span id="sb-ver">v1.1.0</span>
+    <span id="sb-ver">v1.2.0-dev</span>
   </div>
 </nav>
 
@@ -484,9 +484,20 @@ function showMaintenanceBanner(){
   if(el)return;
   el=document.createElement('div');
   el.id='maintenance-banner';
-  el.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#f59e0b;color:#000;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px';
-  el.innerHTML='<span>⚠️ Maintenance Mode — System is read-only</span><button onclick="this.parentElement.remove()" style="background:none;border:none;cursor:pointer;font-size:16px;color:#000">✕</button>';
+  el.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:var(--err);color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px';
+  el.innerHTML='<span>⚠️ Maintenance Mode — System is read-only</span><button onclick="this.parentElement.remove()" style="background:none;border:none;cursor:pointer;font-size:16px;color:#fff">✕</button>';
   document.body.prepend(el);
+  document.body.style.paddingTop='36px';
+  const sb=document.getElementById('sidebar');
+  if(sb)sb.style.top='36px';
+  // Store cleanup function on element
+  el._cleanup=function(){
+    document.body.style.paddingTop='';
+    const s=document.getElementById('sidebar');
+    if(s)s.style.top='';
+  };
+  const origRemove=el.remove.bind(el);
+  el.remove=function(){if(el._cleanup)el._cleanup();origRemove();};
 }
 
 async function checkHealth(){
@@ -992,9 +1003,10 @@ async function loadMaintStatus(){
   el.innerHTML=data.maintenance?'<span style="color:#ef4444;font-weight:500;font-size:13px">⚠️ Maintenance mode is ACTIVE</span>':'<span style="color:#22c55e;font-size:13px">✅ System operating normally</span>';
 }
 async function toggleMaintenance(enable){
-  // Maintenance mode is controlled via server config/TOML, not API
-  // This is a UI hint — actual toggle is via AGENTBOARD_MAINTENANCE env or TOML
-  toast('Maintenance mode is controlled via config (TOML or AGENTBOARD_MAINTENANCE env). Restart server to apply.','info');
+  // ⚠️ Intentional: maintenance is config-only (TOML or AGENTBOARD_MAINTENANCE env).
+  // No API toggle exists — this prevents accidental lockout and ensures the change
+  // is persistent across restarts. See architecture decision in PR #60.
+  toast('Maintenance mode is controlled via config (TOML or AGENTBOARD_MAINTENANCE env). Restart server to apply changes.','info');
 }
 
 // ── Helpers ──

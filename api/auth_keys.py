@@ -54,7 +54,10 @@ def create_key(params, query, body, headers):
         conn.commit()
     except Exception as e:
         conn.close()
-        return 409, {"error": f"Key creation failed: {e}", "code": "CONFLICT"}
+        import sqlite3
+        if isinstance(e, sqlite3.IntegrityError):
+            return 409, {"error": "Key hash collision — retry", "code": "CONFLICT"}
+        raise  # let the generic 500 handler catch it
 
     conn.close()
     return 201, {
@@ -89,7 +92,11 @@ def update_key(params, query, body, headers):
         updates.append("label = ?")
         values.append(data["label"].strip())
 
-    if data.get("is_active") is False or data.get("deactivate") is True:
+    # Deactivate and activate are mutually exclusive — activate wins
+    if data.get("is_active") is True:
+        updates.append("is_active = 1")
+        updates.append("grace_until = NULL")
+    elif data.get("is_active") is False or data.get("deactivate") is True:
         # Deactivate with optional grace period
         grace_minutes = data.get("grace_minutes", 5)
         if grace_minutes and grace_minutes > 0:
@@ -101,10 +108,6 @@ def update_key(params, query, body, headers):
         else:
             updates.append("grace_until = NULL")
         updates.append("is_active = 0")
-
-    if data.get("is_active") is True:
-        updates.append("is_active = 1")
-        updates.append("grace_until = NULL")
 
     if not updates:
         conn.close()

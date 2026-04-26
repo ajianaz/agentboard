@@ -214,7 +214,7 @@ POST /api/tasks/{task_id}/comments
 |--------|------|-------------|
 | GET | `/api/health` | Server health + maintenance status |
 
-Response: `{"status": "ok", "maintenance": false}` (or `"status": "maintenance"` when enabled)
+Response: `{"status": "ok", "version": "1.2.0-dev", "maintenance": false}` (or `"status": "maintenance"` when enabled)
 
 ---
 

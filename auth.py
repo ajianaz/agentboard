@@ -9,6 +9,8 @@ import hashlib
 import hmac
 import os
 import secrets
+import sqlite3
+import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -44,8 +46,11 @@ def get_or_create_api_key() -> str:
     if key_file.exists():
         return key_file.read_text().strip()
     key = generate_api_key()
-    key_file.write_text(key)
-    key_file.chmod(0o600)
+    fd = os.open(str(key_file), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, key.encode())
+    finally:
+        os.close(fd)
     return key
 
 
@@ -66,6 +71,7 @@ def _ensure_db_key():
         return None  # keys already exist, no new key to return
 
     # No active keys — try to import legacy key
+    import traceback
     try:
         legacy_key = get_or_create_api_key()
         key_hash = hash_key(legacy_key)
@@ -79,8 +85,11 @@ def _ensure_db_key():
         conn.commit()
         conn.close()
         return None  # imported, no new key shown
-    except Exception:
-        pass
+    except (sqlite3.IntegrityError, OSError) as e:
+        sys.stderr.write(f"[AgentBoard] Legacy key import failed: {e}\n")
+        traceback.print_exc(file=sys.stderr)
+        # Don't fall through — re-raise so caller knows something is wrong
+        raise
 
     # Fresh install — generate new key
     raw_key = generate_api_key()
@@ -179,13 +188,10 @@ def check_auth_multi(headers: dict) -> tuple:
 
 def has_db_keys() -> bool:
     """Check if the api_keys table has any ACTIVE keys."""
-    try:
-        conn = get_db()
-        row = conn.execute("SELECT COUNT(*) as c FROM api_keys WHERE is_active = 1").fetchone()
-        conn.close()
-        return row["c"] > 0
-    except Exception:
-        return False
+    conn = get_db()
+    row = conn.execute("SELECT COUNT(*) as c FROM api_keys WHERE is_active = 1").fetchone()
+    conn.close()
+    return row["c"] > 0
 
 
 def get_actor_from_headers(headers: dict) -> str:

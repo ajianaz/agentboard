@@ -19,6 +19,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
+VERSION = "1.2.0-dev"
+
 # Local imports
 from config import get_config
 from db import get_db
@@ -151,7 +153,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         maintenance = cfg.get("server", {}).get("maintenance", False)
         self._json_response({
             "status": "maintenance" if maintenance else "ok",
-            "version": "1.2.0-dev",
+            "version": VERSION,
             "maintenance": maintenance,
         }, 200)
 
@@ -291,7 +293,7 @@ def main():
     config_file = BASE_DIR / "agentboard.toml"
 
     print()
-    print("  AgentBoard v1.0.0")
+    print("  AgentBoard v" + VERSION)
     print(f"  Database : {db_path}")
     print(f"  Config   : {'agentboard.toml' if config_file.exists() else 'defaults'}")
     print(f"  API Key  : {_mask_key(api_key)}")
