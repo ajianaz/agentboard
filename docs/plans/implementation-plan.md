@@ -1,6 +1,5 @@
 # AgentBoard — Master Implementation Plan
 
-> **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 > **Context Recovery:** If context is lost, read this file + AGENTS.md → you have everything.
 
 **Goal:** Build a standalone, multi-project task board for human+AI collaboration.

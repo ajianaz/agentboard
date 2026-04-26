@@ -4,6 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![Version](https://img.shields.io/badge/version-v1.2.0-green.svg)](https://github.com/ajianaz/agentboard/releases)
 
 ## What is it?
 
@@ -68,7 +69,7 @@ services:
     image: ghcr.io/ajianaz/agentboard:latest
     env_file: ./.env
     volumes:
-      - .:/opt/data/agentboard
+      - .:/app
     ports:
       - "8765:8765"
 ```
@@ -288,7 +289,7 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 
 **Note:** `/api/setup` is a one-time endpoint — it can only be called once after the database is created. To add additional projects afterward, use `POST /api/projects`.
 
-**Total: 51 endpoints**
+**Total: 52 endpoints** (including `/api/health`)
 
 ## Agent Integration
 
@@ -453,8 +454,8 @@ AGENTBOARD_PORT=9000 python server.py
 To develop alongside a running production instance:
 
 ```bash
-git clone -b develop https://github.com/ajianaz/agentboard.git /opt/data/agentboard-dev
-cd /opt/data/agentboard-dev
+git clone -b develop https://github.com/ajianaz/agentboard.git ~/agentboard-dev
+cd ~/agentboard-dev
 AGENTBOARD_PORT=8766 python3 server.py
 ```
 
@@ -468,8 +469,8 @@ Standalone build tested for v1.0.0 release:
 
 | Test Category | Result | Details |
 |---------------|--------|---------|
-| **API endpoints** | 13/13 ✅ | Root page, auth, CRUD project/task/page/comment, FTS search, stats, export, cascade delete |
-| **HTML structure** | ✅ | DOCTYPE, charset+viewport, zero external deps, relative API paths, 49 JS functions, 15KB CSS dark theme |
+| **API endpoints** | 126/126 ✅ | Full CRUD + analytics + discussions + auth + search + export/import |
+| **HTML structure** | ✅ | DOCTYPE, charset+viewport, zero external deps, relative API paths, dark theme |
 | **Security** | ✅ | `_mask_key()` masks API key in banner, 500 returns generic error (no `str(exc)` leak), `.dockerignore` excludes secrets |
 | **CI/CD** | 5/5 ✅ | pytest 3.11/3.12/3.13 + Docker amd64 + Docker arm64 |
 | **Visual** | ⏭️ Skipped | No browser available in sandbox — requires testing on server with browser |
@@ -479,8 +480,8 @@ Standalone build tested for v1.0.0 release:
 ### Standalone (recommended for simplicity)
 
 ```bash
-git clone https://github.com/ajianaz/agentboard.git /opt/data/agentboard
-cd /opt/data/agentboard
+git clone https://github.com/ajianaz/agentboard.git ~/agentboard
+cd ~/agentboard
 cp .env.example .env  # optional — edit as needed
 python3 server.py     # or use systemd/supervisor for process management
 ```
@@ -488,8 +489,8 @@ python3 server.py     # or use systemd/supervisor for process management
 ### Docker
 
 ```bash
-git clone https://github.com/ajianaz/agentboard.git /opt/data/agentboard
-cd /opt/data/agentboard
+git clone https://github.com/ajianaz/agentboard.git ~/agentboard
+cd ~/agentboard
 cp .env.example .env
 docker compose up -d
 ```

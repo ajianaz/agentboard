@@ -34,7 +34,7 @@ log_requests = false
 
 [database]
 # SQLite database path. Relative paths resolve to project root.
-# Use absolute path for custom location, e.g. "/opt/data/agentboard.db".
+# Use absolute path for custom location, e.g. "/data/agentboard.db".
 path = "agentboard.db"
 
 [auth]

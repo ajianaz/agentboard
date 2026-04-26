@@ -41,8 +41,8 @@ docker compose up -d
 If AgentBoard is already running in production, use a separate clone:
 
 ```bash
-git clone -b develop https://github.com/ajianaz/agentboard.git /opt/data/agentboard-dev
-cd /opt/data/agentboard-dev
+git clone -b develop https://github.com/ajianaz/agentboard.git ~/agentboard-dev
+cd ~/agentboard-dev
 AGENTBOARD_PORT=8766 python3 server.py   # Different port, different DB
 ```
 
