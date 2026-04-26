@@ -1,5 +1,7 @@
 """API Router — maps URL paths to handler functions."""
 
+import json
+import sqlite3
 from urllib.parse import parse_qs
 
 
@@ -50,8 +52,12 @@ class Router:
             if params is not None:
                 try:
                     return handler(params, query, body, headers)
+                except json.JSONDecodeError as e:
+                    return 400, {"error": "Invalid JSON in request body", "code": "INVALID_JSON", "detail": str(e)}
+                except (ValueError, KeyError, TypeError, sqlite3.OperationalError) as e:
+                    return 400, {"error": "Invalid request", "code": "BAD_REQUEST", "detail": str(e)}
                 except Exception as e:
-                    return 500, {"error": str(e), "code": "INTERNAL_ERROR"}
+                    return 500, {"error": "Internal server error", "code": "INTERNAL_ERROR"}
         return None
 
     def _match(self, pattern: str, path: str) -> dict | None:

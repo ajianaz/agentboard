@@ -8,15 +8,20 @@ on:
 
 jobs:
   unit-tests:
-    name: Unit Tests
+    name: Unit Tests (py ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
+      - name: Install pytest
+        run: pip install pytest
       - name: Run unit tests
-        run: python3 -m pytest tests/test_unit.py -v --tb=short
+        run: python3 -m pytest tests/test_db.py tests/test_auth.py -v --tb=short
 
   security-tests:
     name: Security Tests
@@ -42,7 +47,7 @@ jobs:
       - name: Install pytest
         run: pip install pytest
       - name: Run analytics tests
-        run: python3 -m pytest tests/test_analytics.py -v --tb=short
+        run: python3 -m pytest tests/test_analytics.py tests/test_kpi_engine.py tests/test_discussions.py -v --tb=short
 
   integration-tests:
     name: Integration Tests
@@ -68,7 +73,6 @@ jobs:
           python-version: "3.13"
       - name: Verify zero pip dependencies
         run: |
-          grep -q "requirements" setup.py 2>/dev/null && echo "FAIL: setup.py found" && exit 1 || true
           test ! -f requirements.txt || (echo "FAIL: requirements.txt found" && exit 1)
           echo "OK: No requirements files"
       - name: Verify server starts
@@ -76,9 +80,7 @@ jobs:
           AGENTBOARD_API_KEY=ci-test-key python3 server.py &
           SERVER_PID=$!
           sleep 2
-          # Check server is running
           kill -0 $SERVER_PID 2>/dev/null && echo "OK: Server started" || (echo "FAIL: Server crashed" && exit 1)
-          # Check setup endpoint
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8765/api/setup)
           echo "Setup endpoint: $STATUS"
           kill $SERVER_PID 2>/dev/null

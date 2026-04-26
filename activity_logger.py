@@ -70,26 +70,6 @@ def log_activity_event(
         return None
 
 
-def log_task_event(task_id: str, action: str, actor: str, detail: dict | None = None, project_id: str | None = None) -> str | None:
-    """Convenience function for task-related activity logging."""
-    return log_activity_event("task", task_id, action, actor, detail, project_id)
-
-
-def log_project_event(project_id: str, action: str, actor: str, detail: dict | None = None) -> str | None:
-    """Convenience function for project-related activity logging."""
-    return log_activity_event("project", project_id, action, actor, detail, project_id)
-
-
-def log_comment_event(comment_id: str, action: str, actor: str, detail: dict | None = None, project_id: str | None = None) -> str | None:
-    """Convenience function for comment-related activity logging."""
-    return log_activity_event("comment", comment_id, action, actor, detail, project_id)
-
-
-def log_page_event(page_id: str, action: str, actor: str, detail: dict | None = None, project_id: str | None = None) -> str | None:
-    """Convenience function for page-related activity logging."""
-    return log_activity_event("page", page_id, action, actor, detail, project_id)
-
-
 def get_actor_from_headers(headers: dict) -> str:
     """Extract actor name from request headers.
 
