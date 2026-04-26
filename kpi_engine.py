@@ -164,10 +164,8 @@ class KPIEngine:
             (agent_id, date_start, date_end),
         ).fetchone()["c"]
 
-        # Success rate: tasks completed / (tasks created + tasks_completed - tasks_completed)
-        # Simplified: completed / max(created, 1) to avoid division by zero
-        total_tasks = tasks_created + tasks_completed
-        success_rate = round(tasks_completed / max(total_tasks, 1) * 100, 1) if total_tasks > 0 else 0.0
+        # Success rate: completed / max(created, 1) — how many created tasks got done
+        success_rate = round(tasks_completed / max(tasks_created, 1) * 100, 1) if tasks_created > 0 else 0.0
 
         # Average completion time (hours) — from task started_at to completed_at
         avg_hours = conn.execute(

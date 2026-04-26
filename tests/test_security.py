@@ -345,7 +345,7 @@ class TestFTS5Injection:
         c, d = api("GET", f"/api/search?q={urllib.parse.quote(query)}", auth=False)
         # Should be 200 (empty results), 400 (rejected), or 500 (FTS syntax error)
         # Must NOT expose api_keys or sensitive data
-        assert c in (200, 400, 500), f"FTS query '{query}' returned {c}: {d}"
+        assert c in (200, 400), f"FTS query '{query}' returned {c}: {d}"
         # If we got results, make sure no key hashes are exposed
         if c == 200 and d.get("results"):
             for r in d["results"]:
@@ -377,7 +377,7 @@ class TestPayloadHandling:
         c, d = api("POST", "/api/projects/security-test/tasks",
                    data={"title": large_title, "status": "todo"})
         # Should be 200/201 (accepted) or 413 (too large) or 400
-        assert c in (200, 201, 400, 413, 500), f"Large payload returned {c}: {d}"
+        assert c in (200, 201, 400, 413), f"Large payload returned {c}: {d}"
 
     def test_invalid_json_body(self, server):
         """Invalid JSON body should return 400, not 500."""
@@ -390,7 +390,7 @@ class TestPayloadHandling:
             c = resp.status
         except urllib.error.HTTPError as e:
             c = e.code
-        assert c in (400, 500), f"Invalid JSON returned {c}"
+        assert c == 400, f"Invalid JSON returned {c}"
 
     def test_empty_body_for_post(self, server):
         """Empty body on POST should be handled gracefully."""
