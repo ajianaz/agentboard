@@ -188,6 +188,53 @@ services:
     #   - "traefik.http.services.agentboard.loadbalancer.server.port=8765"
 ```
 
+## Development Environment (Side-by-Side with Production)
+
+For live production systems, always develop in a separate clone to avoid
+affecting production data:
+
+```bash
+# Production (DO NOT modify directly for development)
+/opt/data/agentboard/       ← running, has real data
+
+# Development (separate clone)
+git clone -b develop https://github.com/ajianaz/agentboard.git /opt/data/agentboard-dev
+cd /opt/data/agentboard-dev
+
+# Dev uses different port and DB automatically
+AGENTBOARD_PORT=8766 AGENTBOARD_DB_PATH=agentboard-dev.db python3 server.py
+# → http://127.0.0.1:8766
+```
+
+### Isolation Guarantees
+
+| Resource | Production | Development |
+|----------|-----------|-------------|
+| Directory | `/opt/data/agentboard/` | `/opt/data/agentboard-dev/` |
+| Port | 8765 (default) | 8766 (or any free port) |
+| Database | `agentboard.db` | `agentboard-dev.db` |
+| API Key | `.api_key` | `.api_key` (auto-generated) |
+
+### Deploy Workflow
+
+```bash
+# 1. Develop and test in /opt/data/agentboard-dev
+# 2. Push to develop → CI passes → merge to main
+# 3. In production:
+cd /opt/data/agentboard
+git pull                          # Update code (DB untouched)
+docker compose restart            # Or: python3 server.py
+# 4. Verify: check health endpoint and dashboard
+```
+
+### Rollback
+
+```bash
+cd /opt/data/agentboard
+git checkout v1.0.0               # Pin to known-good version
+docker compose restart
+```
+
 ## Database Schema
 
 ### Projects (dynamic, owner-managed)

@@ -337,6 +337,20 @@ python -m pytest tests/ -v
 AGENTBOARD_PORT=9000 python server.py
 ```
 
+## Development (Side-by-Side with Production)
+
+To develop alongside a running production instance:
+
+```bash
+git clone -b develop https://github.com/ajianaz/agentboard.git /opt/data/agentboard-dev
+cd /opt/data/agentboard-dev
+AGENTBOARD_PORT=8766 python3 server.py
+```
+
+Production and development are fully isolated — separate databases,
+separate API keys, separate ports. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for full development setup.
+
 ## Quality Assurance
 
 Standalone build tested for v1.0.0 release:

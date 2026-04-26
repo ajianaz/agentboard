@@ -17,6 +17,18 @@ cp .env.example .env
 docker compose up -d
 ```
 
+### Side-by-Side with Production
+
+If AgentBoard is already running in production, use a separate clone:
+
+```bash
+git clone -b develop https://github.com/ajianaz/agentboard.git /opt/data/agentboard-dev
+cd /opt/data/agentboard-dev
+AGENTBOARD_PORT=8766 python3 server.py   # Different port, different DB
+```
+
+This ensures production database and API key are never affected by development.
+
 ## Branch Strategy
 
 - `main` — tagged releases only
