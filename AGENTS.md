@@ -24,7 +24,7 @@ python server.py
 # Open http://localhost:8765
 ```
 
-First run creates `agentboard.db` with default schema (v3), imports legacy API key, one default project, and admin setup page.
+First run creates `agentboard.db` with default schema (v5), imports legacy API key, starts KPI engine, and runs auto-cleanup.
 
 **CLI flags** (optional, override everything):
 ```bash
@@ -68,11 +68,11 @@ The skill is self-contained — no installation, no dependencies. Just read `SKI
 │  ┌─────────┬────────────────────────────────────┐  │
 │  │ Sidebar │  Main Content Area                  │  │
 │  │         │  ┌──────────┬──────────┬──────────┐ │  │
-│  │ Overview│  │  Board   │  Docs    │  Stats   │ │  │
-│  │ Project │  │  (kanban)│  (tree)  │  (chart) │ │  │
-│  │ List    │  └──────────┴──────────┴──────────┘ │  │
-│  │ Agents  │                                      │  │
-│  │ Settings│                                      │  │
+│  Overview│  │  Board   │  Docs    │  Stats   │ │  │
+│  Project │  │  (kanban)│  (tree)  │  (chart) │ │  │
+│  List    │  └──────────┴──────────┴──────────┘ │  │
+│  Agents  │  ┌──────────┬──────────┬──────────┐ │  │
+│  Settings│  │Analytics │Discussions│Activity │ │  │
 │  └─────────┴──────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────┘
          │ fetch() API calls (JSON)
@@ -87,11 +87,16 @@ The skill is self-contained — no installation, no dependencies. Just read `SKI
 │  │  config.py — agentboard.toml loader (tomllib) │  │
 │  │  CLI args > env vars > TOML > defaults       │  │
 │  └──────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────┐  │
+│  │  kpi_engine.py — Background KPI computation    │  │
+│  │  activity_logger.py — Auto-logging middleware   │  │
+│  └──────────────────────────────────────────────┘  │
 │         │                                           │
 │         ▼                                           │
 │  ┌──────────────────────────────────────────────┐  │
 │  │            agentboard.db (SQLite WAL)         │  │
-│  │  projects │ tasks │ pages │ agents │ activity │ api_keys │  │
+│  │  projects │ tasks │ pages │ agents │ activity │ api_keys │
+│  │  kpi_daily │ kpi_weekly │ discussions │ discussion_feedback │
 │  └──────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────┘
 ```
@@ -102,8 +107,11 @@ The skill is self-contained — no installation, no dependencies. Just read `SKI
 agentboard/
 ├── server.py              # Entry point, HTTP server, routing
 ├── config.py              # Configuration loader (agentboard.toml, tomllib)
-├── db.py                  # SQLite schema, migrations, queries
+├── db.py                  # SQLite schema v5, migrations, WAL mode, retention
 ├── auth.py                # API key auth, session management
+├── kpi_engine.py          # Background KPI computation engine
+├── activity_logger.py     # Auto-logging middleware for write operations
+├── onboard.py             # First-run setup + sample data generation
 ├── api/
 │   ├── __init__.py
 │   ├── projects.py        # Project CRUD
@@ -111,7 +119,9 @@ agentboard/
 │   ├── pages.py           # Document tree CRUD
 │   ├── agents.py          # Agent management
 │   ├── comments.py        # Task/page comments
-│   ├── activity.py        # Activity log
+│   ├── activity.py        # Activity log (enhanced with filters)
+│   ├── analytics.py       # KPI metrics, trends, export, recompute
+│   ├── discussions.py     # Multi-round discussion/review system
 │   ├── search.py          # FTS5 search
 │   ├── export.py          # Export/import endpoints
 │   └── auth_keys.py        # API key CRUD & rotation
