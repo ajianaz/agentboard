@@ -84,6 +84,7 @@ router = Router()
 # from api import projects, tasks, pages, agents, comments, activity, search
 _ROUTE_MODULES = [
     "projects", "tasks", "pages", "agents", "comments", "activity", "search", "export",
+    "auth_keys",
 ]
 for _mod_name in _ROUTE_MODULES:
     try:

@@ -95,3 +95,13 @@ Use GitHub Issues with the provided templates. Include:
 - Expected vs actual behavior
 - Python version
 - Browser (if frontend issue)
+
+## Schema Migrations
+
+When adding database changes:
+
+1. Increment `SCHEMA_VERSION` in `db.py`
+2. Add migration SQL to the `migrations` dict in `_run_migrations()`
+3. Update the schema docs in `AGENTS.md`
+4. Test migration from previous version (create DB with old schema, upgrade)
+5. Migration must be backward-compatible (additive only, no column drops)

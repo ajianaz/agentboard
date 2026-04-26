@@ -12,6 +12,8 @@
 | `PATCH /api/*` | ✅ Yes | Update resources |
 | `DELETE /api/*` | ✅ Yes | Delete resources |
 | `POST /api/setup` | ❌ No | First-run setup (always public) |
+| `GET /api/auth/*` | ✅ Yes | Key management (always protected) |
+| `GET /api/health` | ❌ No | Health check (always public) |
 | Static files + `/` | ❌ No | SPA served always |
 
 **Public read** is enabled by default (`auth.public_read = true`). To disable:
@@ -206,6 +208,35 @@ POST /api/tasks/{task_id}/comments
 
 ---
 
+## Health Check
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Server health + maintenance status |
+
+Response: `{"status": "ok", "version": "1.2.0-dev", "maintenance": false}` (or `"status": "maintenance"` when enabled)
+
+---
+
+## Auth Keys (API Key Management)
+
+All routes require auth (even with `public_read=true`).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/auth/keys` | List all keys (hashed) |
+| POST | `/api/auth/keys` | Create key (raw shown once) |
+| PATCH | `/api/auth/keys/{id}` | Update label, deactivate/activate |
+| DELETE | `/api/auth/keys/{id}` | Delete key (blocks last active) |
+
+**Create:** `POST /api/auth/keys {"label": "my-key"}` → `{"id": "...", "key": "ab_xxx...", "warning": "..."}`
+
+**Deactivate:** `PATCH /api/auth/keys/{id} {"deactivate": true, "grace_minutes": 5}` — key works for 5 more minutes
+
+**Activate:** `PATCH /api/auth/keys/{id} {"is_active": true}`
+
+---
+
 ## Error Codes
 
 | Code | HTTP | Meaning |
@@ -216,3 +247,5 @@ POST /api/tasks/{task_id}/comments
 | `VALIDATION_ERROR` | 400 | Invalid request body |
 | `SLUG_EXISTS` | 409 | Project slug already taken |
 | `DB_ERROR` | 500 | Database operation failed |
+| `MAINTENANCE` | 503 | Server in maintenance mode |
+| `LAST_KEY` | 409 | Cannot delete last active API key |

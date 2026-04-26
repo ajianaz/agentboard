@@ -24,7 +24,7 @@ python server.py
 # Open http://localhost:8765
 ```
 
-First run creates `agentboard.db` with default schema, one default project, and admin setup page.
+First run creates `agentboard.db` with default schema (v3), imports legacy API key, one default project, and admin setup page.
 
 **CLI flags** (optional, override everything):
 ```bash
@@ -91,7 +91,7 @@ The skill is self-contained — no installation, no dependencies. Just read `SKI
 │         ▼                                           │
 │  ┌──────────────────────────────────────────────┐  │
 │  │            agentboard.db (SQLite WAL)         │  │
-│  │  projects │ tasks │ pages │ agents │ activity  │  │
+│  │  projects │ tasks │ pages │ agents │ activity │ api_keys │  │
 │  └──────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────┘
 ```
@@ -113,7 +113,8 @@ agentboard/
 │   ├── comments.py        # Task/page comments
 │   ├── activity.py        # Activity log
 │   ├── search.py          # FTS5 search
-│   └── export.py          # Export/import endpoints
+│   ├── export.py          # Export/import endpoints
+│   └── auth_keys.py        # API key CRUD & rotation
 ├── static/
 │   └── index.html         # Single-page application (all UI)
 ├── tests/
@@ -390,6 +391,24 @@ CREATE INDEX idx_activity_project ON activity(project_id);
 CREATE INDEX idx_activity_created ON activity(created_at DESC);
 ```
 
+
+### API Keys (multi-key auth, schema v3)
+
+```sql
+CREATE TABLE api_keys (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    key_hash TEXT NOT NULL UNIQUE,
+    label TEXT DEFAULT 'default',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_used_at TEXT,
+    grace_until TEXT
+);
+CREATE INDEX idx_api_keys_active ON api_keys(is_active);
+```
+
+**Key rotation:** Keys are stored hashed (SHA-256). Raw keys are shown only once on creation. Deactivated keys can have a grace period (configurable minutes) during which they still authenticate. The last active key cannot be deleted.
+
 ### FTS5 Search
 
 ```sql
@@ -422,6 +441,8 @@ All API endpoints return JSON.
 | `PATCH /api/*` | ✅ Yes | Update resources |
 | `DELETE /api/*` | ✅ Yes | Delete resources |
 | `POST /api/setup` | ❌ No | First-run setup (always public) |
+| `GET /api/auth/*` | ✅ Yes | Key management (always protected) |
+| `GET /api/health` | ❌ No | Health check (always public) |
 
 **Public read** is enabled by default. Write operations require: `Authorization: Bearer <api_key>`
 
@@ -661,6 +682,63 @@ curl -X POST http://localhost:8765/api/import \
   -d "{\"data\": $(cat backup.json)}"
 ```
 
+
+### Health Check
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Server health + maintenance status |
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "maintenance": false,
+  "version": "1.1.0"
+}
+```
+
+When maintenance mode is active:
+```json
+{
+  "status": "maintenance",
+  "maintenance": true,
+  "version": "1.1.0"
+}
+```
+
+### Auth Keys (API Key Management)
+
+All `/api/auth/*` routes **always require authentication** (even when `public_read=true`).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/auth/keys` | List all keys (hashed, never raw) |
+| POST | `/api/auth/keys` | Create new key (raw key shown once) |
+| PATCH | `/api/auth/keys/{id}` | Update label, deactivate/activate |
+| DELETE | `/api/auth/keys/{id}` | Delete key (blocks last active) |
+
+**Create key:**
+```json
+POST /api/auth/keys
+{"label": "claude-code"}
+// Response (raw key shown ONLY here):
+{"id": "abc...", "label": "claude-code", "key": "ab_xxx...", "warning": "Save this key now — it cannot be retrieved again."}
+```
+
+**Deactivate with grace period:**
+```json
+PATCH /api/auth/keys/{id}
+{"deactivate": true, "grace_minutes": 5}
+// Key continues to work for 5 minutes, then is fully rejected
+```
+
+**Activate:**
+```json
+PATCH /api/auth/keys/{id}
+{"is_active": true}
+```
+
 ## Agent Workflow
 
 ### For AI agents reading this:
@@ -779,6 +857,7 @@ port = 8765                    # Server port
 cors_origins = ["*"]           # CORS allowed origins
 proxy_prefix = ""              # Reverse proxy path prefix (e.g. "/board")
 log_requests = false           # Enable HTTP request logging
+maintenance = false            # Maintenance mode (all writes return 503)
 
 [database]
 path = "agentboard.db"         # SQLite file path (relative to project root)
@@ -813,6 +892,8 @@ python server.py -p 9000 -c prod.toml  # Short flags
 | `AGENTBOARD_API_KEY` | API key (overrides `.api_key` file) | auto-generated |
 | `AGENTBOARD_API_KEY_FILE` | API key file path | `.api_key` |
 | `AGENTBOARD_DB_PATH` | Database file path | `agentboard.db` |
+| `AGENTBOARD_PUBLIC_READ` | Allow GET without auth | `true` |
+| `AGENTBOARD_MAINTENANCE` | Enable maintenance mode | `false` |
 | `TZ` | Timezone for timestamps | `UTC` |
 
 ### Config Access in Code
@@ -898,6 +979,8 @@ python -m pytest tests/test_auth.py -v
 | `VALIDATION_ERROR` | 400 | Invalid request body |
 | `SLUG_EXISTS` | 409 | Project slug already taken |
 | `DB_ERROR` | 500 | Database operation failed |
+| `MAINTENANCE` | 503 | Server in maintenance mode (writes blocked) |
+| `LAST_KEY` | 409 | Cannot delete the last active API key |
 
 ## Testing
 

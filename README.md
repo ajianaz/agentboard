@@ -115,6 +115,47 @@ public_read = false
 
 You can override the API key with the `AGENTBOARD_API_KEY` environment variable, or set a custom key file path in `agentboard.toml`.
 
+### Multi-Key Auth & Rotation (v1.2.0)
+
+AgentBoard supports multiple API keys with rotation and grace periods:
+
+- **Keys stored hashed** — raw key is shown only once on creation
+- **Grace period** — deactivated keys work for N minutes before being fully rejected
+- **Last key protection** — cannot delete the last active key
+- **Legacy migration** — existing `.api_key` file is auto-imported on first v3 schema boot
+
+Manage keys via the **⚙️ Settings** page in the UI, or the API:
+
+```bash
+# Create a new key
+curl -X POST http://localhost:8765/api/auth/keys \
+  -H "Authorization: Bearer ***" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "ci-bot"}'
+# → {"key": "ab_xxx...", "warning": "Save this key now"}
+
+# Deactivate with 5-minute grace
+curl -X PATCH http://localhost:8765/api/auth/keys/{id} \
+  -H "Authorization: Bearer ***" \
+  -H "Content-Type: application/json" \
+  -d '{"deactivate": true, "grace_minutes": 5}'
+```
+
+### Maintenance Mode
+
+Enable maintenance mode to block all write operations (reads continue normally):
+
+```bash
+# Enable via environment
+AGENTBOARD_MAINTENANCE=true python server.py
+
+# Or in agentboard.toml
+[server]
+maintenance = true
+```
+
+All POST/PATCH/DELETE requests return `503 MAINTENANCE` when enabled. Health check (`/api/health`) reflects the current status.
+
 ### Auth Summary
 
 | Request Type | Auth Required | Behavior |
