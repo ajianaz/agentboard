@@ -12,6 +12,7 @@ Endpoints:
 import json
 from db import get_db, gen_id
 from api import router
+from webhook import on_task_created, on_task_assigned, on_task_status_changed, on_task_comment
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +72,8 @@ HITL_TRANSITIONS = {
     ("proposed", "todo"): ("approved", "Task approved and moved to To Do"),
     # proposed → rejected (owner rejects)
     ("proposed", "rejected"): ("rejected", "Task rejected"),
+    # repurposed → todo (content repurposed for new use)
+    ("repurposed", "todo"): ("repurposed", "Task repurposed and moved to To Do"),
     # any → in_progress (agent starts work)
     # We use a special key; checked at runtime.
     # any → review (agent submits for review)
@@ -195,6 +198,14 @@ def create_task(params, query, body, headers):
     assignee = (data.get("assignee") or "").strip()
     tags = data.get("tags") or []
     due_date = (data.get("due_date") or "").strip() or None
+    parent_id = (data.get("parent_id") or "").strip() or None
+
+    # Validate parent_id exists if provided
+    if parent_id:
+        parent = conn.execute("SELECT id FROM tasks WHERE id = ?", (parent_id,)).fetchone()
+        if not parent:
+            conn.close()
+            return 400, {"error": f"Parent task '{parent_id}' not found", "code": "VALIDATION_ERROR"}
 
     # Determine position (append to end of status group)
     pos_row = conn.execute(
@@ -218,10 +229,10 @@ def create_task(params, query, body, headers):
 
     conn.execute(
         """INSERT INTO tasks
-           (id, project_id, title, description, status, priority, assignee,
+           (id, project_id, parent_id, title, description, status, priority, assignee,
             tags, position, due_date, started_at, completed_at, metadata, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (task_id, project_id, title, description, status, priority, assignee,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (task_id, project_id, parent_id, title, description, status, priority, assignee,
          json.dumps(tags), position, due_date, started_at, completed_at,
          json.dumps({}), created_by),
     )
@@ -239,6 +250,9 @@ def create_task(params, query, body, headers):
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     task = _task_row_to_dict(row)
     conn.close()
+
+    # Fire webhook notification
+    on_task_created(task, actor, slug)
 
     return 201, {"task": task}
 
@@ -380,7 +394,28 @@ def update_task(params, query, body, headers):
 
     updated = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     task = _task_row_to_dict(updated)
+
+    # Resolve project slug for webhook
+    project_row = conn.execute(
+        "SELECT slug FROM projects WHERE id = ?", (project_id,)
+    ).fetchone()
+    project_slug = project_row["slug"] if project_row else ""
+
     conn.close()
+
+    # Fire webhook notifications (async, non-blocking)
+    new_status = updates.get("status")
+    if new_status and new_status != old_status:
+        on_task_status_changed(task, old_status, new_status, actor, project_slug)
+
+    new_assignee = updates.get("assignee")
+    if new_assignee and new_assignee != row["assignee"]:
+        on_task_assigned(task, row["assignee"], new_assignee, actor, project_slug)
+
+    if "comment" in data and data["comment"]:
+        comment_text = str(data["comment"]).strip()
+        if comment_text:
+            on_task_comment(task, actor, comment_text, project_slug)
 
     return 200, {"task": task}
 
@@ -518,3 +553,30 @@ def get_task(params, query, body, headers):
 
     conn.close()
     return 200, {"task": task}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/tasks/{id}/children — subtasks of a parent task
+# ---------------------------------------------------------------------------
+
+@router.get("/api/tasks/{id}/children")
+def list_subtasks(params, query, body, headers):
+    parent_id = params["id"]
+    conn = get_db()
+
+    # Verify parent task exists
+    parent = conn.execute("SELECT id FROM tasks WHERE id = ?", (parent_id,)).fetchone()
+    if not parent:
+        conn.close()
+        return 404, {"error": f"Task '{parent_id}' not found", "code": "NOT_FOUND"}
+
+    rows = conn.execute(
+        """SELECT t.* FROM tasks t
+           WHERE t.parent_id = ?
+           ORDER BY t.status ASC, t.position ASC, t.created_at ASC""",
+        (parent_id,),
+    ).fetchall()
+
+    children = [_task_row_to_dict(r) for r in rows]
+    conn.close()
+    return 200, {"tasks": children}

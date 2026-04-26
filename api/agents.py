@@ -3,6 +3,7 @@
 Endpoints:
     GET    /api/agents              — list all agents
     POST   /api/agents              — register agent
+    GET    /api/agents/{id}         — get single agent
     PATCH  /api/agents/{id}         — update agent
     GET    /api/agents/{id}/workload — agent task stats across all projects
 """
@@ -99,6 +100,25 @@ def create_agent(params, query, body, headers):
     conn.close()
 
     return 201, {"agent": agent}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/agents/{id} — get single agent
+# ---------------------------------------------------------------------------
+
+@router.get("/api/agents/{id}")
+def get_agent(params, query, body, headers):
+    agent_id = params["id"]
+    conn = get_db()
+
+    row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    if not row:
+        conn.close()
+        return 404, {"error": f"Agent '{agent_id}' not found", "code": "NOT_FOUND"}
+
+    agent = _agent_row_to_dict(row)
+    conn.close()
+    return 200, {"agent": agent}
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -215,8 +215,8 @@ def _run_migrations(conn: sqlite3.Connection, from_ver: int, to_ver: int):
         to_ver: Target schema version to migrate to.
     """
     migrations = {
-        # Future migrations go here:
-        # 2: "ALTER TABLE tasks ADD COLUMN estimated_hours REAL DEFAULT 0;"
+        2: """ALTER TABLE tasks ADD COLUMN parent_id TEXT REFERENCES tasks(id);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);""",
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)

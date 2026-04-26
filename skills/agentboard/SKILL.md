@@ -29,9 +29,36 @@ description: AgentBoard — standalone multi-project task board for agent fleet 
 | `AGENTS.md` | **Single source of truth** — full API reference, schema, conventions |
 | `onboard.py` | Fleet onboard script — registers agents, creates starter projects |
 | `skills/agentboard/SKILL.md` | This file — quick reference hub |
-| `skills/agentboard/references/api_reference.md` | All 31 endpoints with examples |
+| `skills/agentboard/references/api_reference.md` | All 31+ endpoints with examples |
+| `skills/agentboard/references/client.py` | **Python client wrapper** — `from client import Board` |
 | `skills/agentboard/references/workflows.md` | Common agent workflows (7 patterns) |
 | `skills/agentboard/references/pitfalls.md` | Gotchas, edge cases, troubleshooting (14 items) |
+
+## Python Client (Recommended)
+
+```python
+import sys
+sys.path.insert(0, "/opt/data/agentboard/skills/agentboard/references")
+from client import Board
+
+board = Board(actor="cto")  # auto-reads .api_key
+
+# Check my tasks
+tasks = board.my_tasks("cto")
+
+# Propose a task
+task = board.propose("hermes-fleet", "Fix auth bug", assignee="cto")
+
+# Start working
+board.start(task["id"], comment="On it")
+
+# Submit for review
+board.submit_review(task["id"], comment="Ready for review")
+
+# Check workload
+stats = board.get_workload("cto")
+print(f"Total: {stats['total']}, Done: {stats['completed']}")
+```
 
 ## Agent Workflow (TL;DR)
 
@@ -75,8 +102,10 @@ proposed → todo → in_progress → review → done
 |--------|------|---------|
 | GET | `/api/stats` | Board overview |
 | GET | `/api/tasks?project=all&assignee=me` | My tasks |
-| POST | `/api/projects/{slug}/tasks` | Create task |
+| POST | `/api/projects/{slug}/tasks` | Create task (supports `parent_id`) |
 | PATCH | `/api/tasks/{id}` | Update task |
+| GET | `/api/tasks/{id}/children` | Subtasks of a parent |
+| GET | `/api/agents/{id}` | Agent profile |
 | GET | `/api/agents/{id}/workload` | Agent workload |
 | GET | `/api/search?q=...` | Full-text search |
 | GET | `/api/export` | Full backup |

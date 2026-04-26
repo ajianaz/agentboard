@@ -59,8 +59,16 @@
   "assignee": "kai",
   "tags": ["email", "launch"],
   "due_date": "2026-05-01",
-  "created_by": "agent:kai"
+  "created_by": "agent:kai",
+  "parent_id": "abc12345"
 }
+```
+
+> `parent_id` is optional — links this as a subtask of another task.
+
+**Get subtasks:**
+```
+GET /api/tasks/{parent_id}/children
 ```
 
 **HITL — Owner approve/reject:**
@@ -90,6 +98,7 @@ PATCH /api/tasks/{id} {"status": "rejected", "comment": "Not this week."}
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/agents` | List all agents |
+| GET | `/api/agents/{id}` | Get single agent |
 | POST | `/api/agents` | Register agent |
 | PATCH | `/api/agents/{id}` | Update agent profile |
 | GET | `/api/agents/{id}/workload` | Agent's task statistics |
