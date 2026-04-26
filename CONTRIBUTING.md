@@ -4,6 +4,25 @@ Thanks for your interest! Here's how to contribute.
 
 ## Development Setup
 
+### ⚠️ Production Isolation
+
+**If a production server is running from this repo, ALWAYS follow this protocol before switching branches:**
+
+```bash
+# 1. Check production state
+ps aux | grep "server.py" | grep -v grep
+
+# 2. Stash changes, keep production on main
+git stash && git checkout main
+
+# 3. Restart production from main, THEN checkout feature branch
+git checkout -b feat/my-feature main
+```
+
+`git checkout` changes working tree files that the running server uses. Switching branches without care can crash production or serve wrong code.
+
+**Safer:** Clone to a separate directory for dev work.
+
 ```bash
 git clone https://github.com/ajianaz/agentboard.git
 cd agentboard
@@ -19,19 +38,18 @@ docker compose up -d
 
 ## Branch Strategy
 
-- `main` — tagged releases only
-- `develop` — integration branch
-- `feat/*` — new features (branch from `develop`)
-- `fix/*` — bug fixes (branch from `develop`)
+- `main` — production releases. **NEVER push directly** — always via PR
+- `feature/*` — new features (branch from `main`, PR back to `main`)
+- `fix/*` — bug fixes (branch from `main`, PR back to `main`)
 
 ## Pull Request Process
 
-1. Create a branch from `develop`: `git checkout -b feat/my-feature develop`
-2. Make changes with tests
-3. Commit with conventional commits: `feat(api): add task filtering`
-4. Push and open PR against `develop`
-5. Ensure CI passes
-6. Wait for review
+1. Create issues + milestone before coding
+2. Create a branch from `main`: `git checkout -b feature/my-feature main`
+3. Update documentation **before** committing code changes
+4. Commit with conventional commits: `feat(api): add task filtering`
+5. Push and open PR against `main`
+6. Wait for review before merge
 
 ## Commit Convention
 

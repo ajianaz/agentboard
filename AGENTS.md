@@ -731,10 +731,48 @@ reload_config()               # Force re-read (useful in tests)
 
 ## Development
 
+### ⚠️ Production Isolation Rule
+
+**CRITICAL:** If a production server is running from this repository, NEVER `git checkout` a different branch without following this protocol:
+
+```bash
+# 1. Check if production is running — identify its CWD and branch
+ps aux | grep "server.py" | grep -v grep
+
+# 2. Stash any uncommitted changes
+git stash
+
+# 3. Ensure production stays on main (or its current branch)
+git checkout main
+
+# 4. Restart production from the correct branch
+# (kill old process, restart from main)
+
+# 5. NOW switch to your feature branch for development
+git checkout -b feat/my-feature main
+```
+
+**Why:** `git checkout` changes the working tree files that the production server is using. If production is reading `server.py` and you switch branches, the running server may crash or serve wrong code.
+
+**Safer alternative:** Clone to a separate directory for development:
+```bash
+git clone /opt/data/agentboard /tmp/agentboard-dev
+cd /tmp/agentboard-dev && git checkout -b feat/my-feature
+```
+
+### Dev Server
+
 ```bash
 # Run dev server (auto-reload on file change)
 python server.py --dev
 
+# Run on different port (avoids conflicting with production)
+AGENTBOARD_PORT=8766 python server.py
+```
+
+### Testing
+
+```bash
 # Run tests
 python -m pytest tests/ -v
 
