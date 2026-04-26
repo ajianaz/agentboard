@@ -55,6 +55,11 @@ services:
     #   - ${TRAEFIK_NETWORK:-public-net}
 
 # Uncomment to connect to an external Traefik network
+# NOTE: If you set TRAEFIK_NETWORK in .env to a custom name, update the
+# top-level network name below to match. Service-level references use
+# ${TRAEFIK_NETWORK:-public-net}, so the top-level block must declare
+# the SAME name (not a hardcoded one).
+#
 # networks:
-#   public-net:
+#   public-net:        # ← must match TRAEFIK_NETWORK value
 #     external: true

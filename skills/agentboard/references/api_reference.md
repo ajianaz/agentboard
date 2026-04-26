@@ -20,7 +20,7 @@ AGENTBOARD_PUBLIC_READ=false  # env var
 # or in agentboard.toml: [auth] public_read = false
 ```
 
-**Auth header format:** `Authorization: Bearer *** (read from `.api_key`)`
+**Auth header format:** `Authorization: Bearer <api_key>` (read from `.api_key` file)
 
 ---
 

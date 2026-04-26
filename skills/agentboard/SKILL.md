@@ -19,7 +19,7 @@ description: AgentBoard — standalone multi-project task board for agent fleet 
 | **Onboard** | `python3 onboard.py --yes` → registers agents + projects |
 | **API Base** | `http://127.0.0.1:8765/api` |
 | **Dashboard** | `http://127.0.0.1:8765` |
-| **Auth** | GET = public (default), POST/PATCH/DELETE = `Bearer *** from .api_key>` |
+| **Auth** | GET = public (default), POST/PATCH/DELETE = `Bearer <api_key>` (from `.api_key`) |
 | **Public Read** | `auth.public_read=true` default — toggle via env `AGENTBOARD_PUBLIC_READ` |
 | **Tech** | Python 3.11+ stdlib, SQLite WAL, vanilla HTML/CSS/JS |
 

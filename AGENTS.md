@@ -341,7 +341,7 @@ All API endpoints return JSON.
 | `DELETE /api/*` | ✅ Yes | Delete resources |
 | `POST /api/setup` | ❌ No | First-run setup (always public) |
 
-**Public read** is enabled by default. Write operations require: `Authorization: Bearer *** `
+**Public read** is enabled by default. Write operations require: `Authorization: Bearer <api_key>`
 
 To disable public read: `AGENTBOARD_PUBLIC_READ=false` or `[auth] public_read = false` in `agentboard.toml`.
 

@@ -99,7 +99,7 @@ By default (`auth.public_read = true`), all **GET endpoints are accessible witho
 **Write operations** (POST, PATCH, DELETE) always require the API key:
 
 ```
-Authorization: Bearer *** 
+Authorization: Bearer <api_key> 
 ```
 
 To disable public read and require auth for **all** endpoints:
