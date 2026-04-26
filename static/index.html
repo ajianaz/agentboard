@@ -258,6 +258,7 @@ select{appearance:auto}
   <div id="sb-add-proj"></div>
   <div class="sb-sec">System</div>
   <a href="#agents">🤖 Agents</a>
+  <a href="#settings">⚙️ Settings</a>
   <div class="sb-foot">
     <span id="sb-auth" style="cursor:pointer" onclick="showSetup()" title="Click to manage API key">🔓 Read-only</span>
     <span id="sb-ver">v1.1.0</span>
@@ -307,6 +308,14 @@ async function api(m,p,b){
         updateAuthBadge();
       }
       if(isWrite)showSetup();
+      return null;
+    }
+    if(r.status===503){
+      const d=await r.json();
+      if(d.code==='MAINTENANCE'){
+        toast('System is in maintenance mode — read-only','warn');
+        showMaintenanceBanner();
+      }
       return null;
     }
     const d=await r.json();
@@ -468,6 +477,31 @@ async function doSetup(){
   updateAuthBadge();
   render();
 }
+
+// ── Maintenance banner ──
+function showMaintenanceBanner(){
+  let el=document.getElementById('maintenance-banner');
+  if(el)return;
+  el=document.createElement('div');
+  el.id='maintenance-banner';
+  el.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#f59e0b;color:#000;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px';
+  el.innerHTML='<span>⚠️ Maintenance Mode — System is read-only</span><button onclick="this.parentElement.remove()" style="background:none;border:none;cursor:pointer;font-size:16px;color:#000">✕</button>';
+  document.body.prepend(el);
+}
+
+async function checkHealth(){
+  try{
+    const r=await fetch('/api/health');
+    if(!r.ok)return;
+    const d=await r.json();
+    if(d.maintenance)showMaintenanceBanner();
+    else{
+      const el=document.getElementById('maintenance-banner');
+      if(el)el.remove();
+    }
+  }catch(e){}
+}
+
 function updateAuthBadge(){
   const el=document.getElementById('sb-auth');
   if(!el)return;
@@ -525,7 +559,7 @@ async function render(){
     case'overview':await renderOverview(app);break;
     case'board':await renderBoard(app,slug);break;
     case'docs':await renderDocs(app,slug);break;
-    case'settings':await renderSettings(app,slug);break;
+    case'settings':if(slug)await renderProjectSettings(app,slug);else await renderSystemSettings(app);break;
     case'agents':await renderAgents(app);break;
     default:app.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div><h3>Not found</h3><p>This view doesn't exist</p></div>`;
   }
@@ -789,7 +823,7 @@ async function deletePage(id,slug){
 }
 
 // ── Project Settings ──
-async function renderSettings(app,slug){
+async function renderProjectSettings(app,slug){
   const data=await api('GET','/api/projects/'+slug);
   if(!data){app.innerHTML='<div class="empty"><h3>Project not found</h3></div>';return}
   const p=data.project||data;
@@ -881,6 +915,86 @@ async function createAgent(){
   });
   closeModal();toast('Agent registered','ok');
   setTimeout(()=>render(),200);
+}
+
+// ── System Settings ──
+async function renderSystemSettings(app){
+  if(!isAuthenticated()){app.innerHTML='<div class="empty"><h3>🔒 Authentication required</h3><p>Set your API key to access settings</p></div>';return}
+  let h=`<div class="settings-wrap" style="max-width:700px"><h2>⚙️ System Settings</h2>`;
+  // API Keys section
+  h+=`<div style="margin-bottom:24px"><h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:var(--t1)">🔑 API Keys</h3>`;
+  h+=`<div id="keys-list" style="margin-bottom:12px">Loading…</div>`;
+  h+=`<button class="btn btn-p btn-sm" onclick="showNewKeyModal()">+ Generate New Key</button>`;
+  h+=`</div>`;
+  // Maintenance section
+  h+=`<div style="margin-bottom:24px"><h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:var(--t1)">🔧 Maintenance Mode</h3>`;
+  h+=`<p style="font-size:12px;color:var(--t2);margin-bottom:8px">When enabled, all write operations return 503. Read operations continue normally.</p>`;
+  h+=`<div id="maint-status">Loading…</div>`;
+  h+=`<div style="display:flex;gap:8px;margin-top:8px">`;
+  h+=`<button class="btn btn-d btn-sm" onclick="toggleMaintenance(true)">Enable Maintenance</button>`;
+  h+=`<button class="btn btn-p btn-sm" onclick="toggleMaintenance(false)">Disable Maintenance</button>`;
+  h+=`</div></div>`;
+  h+=`</div>`;
+  app.innerHTML=h;
+  loadKeys();
+  loadMaintStatus();
+}
+async function loadKeys(){
+  const data=await api('GET','/api/auth/keys');
+  const el=document.getElementById('keys-list');
+  if(!el)return;
+  if(!data||!data.keys||!data.keys.length){el.innerHTML='<p style="font-size:12px;color:var(--t2)">No API keys found</p>';return}
+  el.innerHTML=data.keys.map(k=>{
+    const status=k.is_active?'<span style="color:#22c55e">● Active</span>':(k.grace_until?'<span style="color:#f59e0b">● Grace Period</span>':'<span style="color:#6b7280">● Inactive</span>');
+    const masked=k.id.slice(0,4)+'****'+k.id.slice(-4);
+    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)">
+      <div><div style="font-size:13px;font-weight:500">${esc(k.label)} <span style="font-size:11px;color:var(--t2)">${masked}</span></div><div style="font-size:11px;color:var(--t2)">${status} · Created ${fmtTime(k.created_at)}${k.last_used_at?' · Used '+fmtTime(k.last_used_at):''}</div></div>
+      <div style="display:flex;gap:4px">${k.is_active?`<button class="btn btn-s btn-sm" onclick="deactivateKey('${k.id}')">Deactivate</button>`:`<button class="btn btn-s btn-sm" onclick="activateKey('${k.id}')">Activate</button>`}<button class="btn btn-d btn-sm" onclick="deleteKey('${k.id}')">Delete</button></div>
+    </div>`;
+  }).join('');
+}
+function showNewKeyModal(){
+  openModal(`<h3>Generate API Key</h3>
+    <div class="form-group"><label>Label</label><input id="nk-label" placeholder="e.g. claude-code, ci-bot"></div>
+    <p style="font-size:12px;color:var(--t2);margin-bottom:12px">The raw key will be shown <strong>once</strong> after creation. Save it securely.</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="createKey()">Generate</button></div>`);
+}
+async function createKey(){
+  const label=document.getElementById('nk-label').value.trim()||'generated';
+  const data=await api('POST','/api/auth/keys',{label});
+  if(!data){toast('Failed to create key','err');return}
+  closeModal();
+  openModal(`<h3>🔑 New API Key</h3>
+    <div class="form-group"><label>Save this key now — it cannot be retrieved again!</label><input id="new-key-raw" value="${esc(data.key)}" readonly style="font-family:monospace;font-size:13px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-s" onclick="navigator.clipboard.writeText(document.getElementById('new-key-raw').value);toast('Copied!','ok')">📋 Copy</button><button class="btn btn-p" onclick="closeModal();loadKeys()">Done</button></div>`);
+  loadKeys();
+}
+async function deactivateKey(id){
+  const grace=prompt('Grace period in minutes (blank = 0, key stops immediately):','5');
+  const mins=grace?parseInt(grace):0;
+  await api('PATCH','/api/auth/keys/'+id,{deactivate:true,grace_minutes:mins});
+  toast('Key deactivated','ok');loadKeys();
+}
+async function activateKey(id){
+  await api('PATCH','/api/auth/keys/'+id,{is_active:true});
+  toast('Key activated','ok');loadKeys();
+}
+async function deleteKey(id){
+  if(!confirm('Permanently delete this API key? This cannot be undone.'))return;
+  await api('DELETE','/api/auth/keys/'+id);
+  toast('Key deleted','ok');loadKeys();
+}
+async function loadMaintStatus(){
+  const data=await api('GET','/api/health');
+  const el=document.getElementById('maint-status');
+  if(!el)return;
+  if(!data){el.innerHTML='Failed to load status';return}
+  el.innerHTML=data.maintenance?'<span style="color:#ef4444;font-weight:500;font-size:13px">⚠️ Maintenance mode is ACTIVE</span>':'<span style="color:#22c55e;font-size:13px">✅ System operating normally</span>';
+}
+async function toggleMaintenance(enable){
+  // Maintenance mode is controlled via server config/TOML, not API
+  // This is a UI hint — actual toggle is via AGENTBOARD_MAINTENANCE env or TOML
+  toast('Maintenance mode is controlled via config (TOML or AGENTBOARD_MAINTENANCE env). Restart server to apply.','info');
 }
 
 // ── Helpers ──
@@ -1022,7 +1136,9 @@ document.addEventListener('keydown',e=>{
 });
 
 // Start
+checkHealth();
 render();
+setInterval(checkHealth,30000);
 </script>
 </body>
 </html>

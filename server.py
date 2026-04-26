@@ -22,7 +22,7 @@ from pathlib import Path
 # Local imports
 from config import get_config
 from db import get_db
-from auth import get_or_create_api_key, hash_key, check_auth
+from auth import get_or_create_api_key, hash_key, check_auth, check_auth_multi, has_db_keys, _ensure_db_key
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
@@ -96,27 +96,64 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._serve_file(filepath, self._guess_content_type(path))
             return
 
+        # Health check — always accessible, no auth, no maintenance block
+        if path == "/api/health":
+            self._handle_health()
+            return
+
+        # Maintenance mode — block all write operations
+        if method in ("POST", "PATCH", "DELETE"):
+            cfg = get_config()
+            if cfg.get("server", {}).get("maintenance", False):
+                self._json_response(
+                    {"error": "System is in maintenance mode. Read-only access is available.",
+                     "code": "MAINTENANCE"}, 503
+                )
+                return
+
         # Auth check — public read mode allows GET without token
         # Public routes: root, /static/*, /api/setup (POST), GET /api/* (when public_read)
         # Protected routes: POST/PATCH/DELETE /api/* (always need Bearer token)
+        # Always protected: /api/auth/* (key management)
         needs_auth = True
         if path == "/api/setup":
             needs_auth = False
+        elif path.startswith("/api/auth/"):
+            needs_auth = True  # key management always requires auth
         elif method == "GET" and path.startswith("/api/"):
             cfg = get_config()
             if cfg.get("auth", {}).get("public_read", True):
                 needs_auth = False
 
         if needs_auth:
-            api_key_hash = hash_key(get_or_create_api_key())
-            if not check_auth(self.headers, api_key_hash):
-                self._json_response(
-                    {"error": "Unauthorized", "code": "UNAUTHORIZED"}, 401
-                )
-                return
+            # Try multi-key auth first (schema v3), fallback to legacy single-key
+            if has_db_keys():
+                valid, _ = check_auth_multi(self.headers)
+                if not valid:
+                    self._json_response(
+                        {"error": "Unauthorized", "code": "UNAUTHORIZED"}, 401
+                    )
+                    return
+            else:
+                api_key_hash = hash_key(get_or_create_api_key())
+                if not check_auth(self.headers, api_key_hash):
+                    self._json_response(
+                        {"error": "Unauthorized", "code": "UNAUTHORIZED"}, 401
+                    )
+                    return
 
         # API routes
         self._handle_api(method, path, query)
+
+    def _handle_health(self):
+        """Return health status — always accessible."""
+        cfg = get_config()
+        maintenance = cfg.get("server", {}).get("maintenance", False)
+        self._json_response({
+            "status": "maintenance" if maintenance else "ok",
+            "version": "1.2.0-dev",
+            "maintenance": maintenance,
+        }, 200)
 
     def _handle_api(self, method: str, path: str, query: dict):
         """Route API requests to the API router module."""
@@ -244,6 +281,9 @@ def main():
 
     # Ensure database exists and is migrated
     get_db()
+
+    # Ensure at least one API key exists in DB (imports legacy key on first run)
+    _ensure_db_key()
 
     # Load API key (for banner display — always masked)
     api_key = get_or_create_api_key()

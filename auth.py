@@ -1,16 +1,23 @@
-"""auth.py - API key generation, validation, and request auth for AgentBoard."""
+"""auth.py - API key management, validation, and request auth for AgentBoard.
+
+Supports multi-key management with rotation and grace period.
+Keys are stored hashed in the `api_keys` table (schema v3).
+Legacy single-key mode (.api_key file) is auto-imported on first migration.
+"""
 
 import hashlib
 import hmac
 import os
 import secrets
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # API_KEY_FILE resolved by config module at runtime
 from config import get_config
+from db import get_db, gen_id
 
-API_KEY_FILE = None  # set on first use
 SESSION_COOKIE = "agentboard_session"
+_GRACE_MINUTES = 5
 
 
 def generate_api_key() -> str:
@@ -24,28 +31,130 @@ def hash_key(key: str) -> str:
 
 
 def get_or_create_api_key() -> str:
-    """Load existing API key from file or env, or generate and save a new one."""
-    global API_KEY_FILE
+    """Load existing API key from file or env, or generate and save a new one.
+
+    This is the legacy single-key path. Used for backward compatibility
+    and initial setup. Once the api_keys table exists, prefer key_manager.
+    """
     env_key = os.environ.get("AGENTBOARD_API_KEY")
     if env_key:
         return env_key
-    if API_KEY_FILE is None:
-        API_KEY_FILE = get_config()["auth"]["api_key_file"]
-    if API_KEY_FILE.exists():
-        return API_KEY_FILE.read_text().strip()
+    cfg = get_config()
+    key_file = cfg["auth"]["api_key_file"]
+    if key_file.exists():
+        return key_file.read_text().strip()
     key = generate_api_key()
-    API_KEY_FILE.write_text(key)
-    API_KEY_FILE.chmod(0o600)
+    key_file.write_text(key)
+    key_file.chmod(0o600)
     return key
 
 
+def _ensure_db_key():
+    """Ensure at least one active key exists in the api_keys table.
+
+    On first run (migration), imports the legacy .api_key file.
+    On fresh install, generates a new key.
+    Returns the raw key (only shown once during creation).
+    """
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id FROM api_keys WHERE is_active = 1 LIMIT 1"
+    ).fetchone()
+
+    if row:
+        conn.close()
+        return None  # keys already exist, no new key to return
+
+    # No active keys — try to import legacy key
+    try:
+        legacy_key = get_or_create_api_key()
+        key_hash = hash_key(legacy_key)
+        kid = gen_id()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn.execute(
+            """INSERT INTO api_keys (id, key_hash, label, is_active, created_at)
+               VALUES (?, ?, ?, 1, ?)""",
+            (kid, key_hash, "imported", now),
+        )
+        conn.commit()
+        conn.close()
+        return None  # imported, no new key shown
+    except Exception:
+        pass
+
+    # Fresh install — generate new key
+    raw_key = generate_api_key()
+    key_hash = hash_key(raw_key)
+    kid = gen_id()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute(
+        """INSERT INTO api_keys (id, key_hash, label, is_active, created_at)
+           VALUES (?, ?, ?, 1, ?)""",
+        (kid, key_hash, "default", now),
+    )
+    conn.commit()
+    conn.close()
+    return raw_key  # return raw key so it can be displayed to user
+
+
+def validate_key_against_db(raw_key: str) -> tuple:
+    """Check a raw key against all active keys in the database.
+
+    Supports grace period — keys recently deactivated still work
+    until their grace_until timestamp passes.
+
+    Returns:
+        (is_valid: bool, key_id: str|None)
+    """
+    key_hash = hash_key(raw_key)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn = get_db()
+
+    # Check active keys
+    row = conn.execute(
+        """SELECT id FROM api_keys
+           WHERE key_hash = ? AND is_active = 1""",
+        (key_hash,),
+    ).fetchone()
+
+    if row:
+        # Update last_used_at
+        conn.execute(
+            "UPDATE api_keys SET last_used_at = ? WHERE id = ?",
+            (now, row["id"]),
+        )
+        conn.commit()
+        conn.close()
+        return True, row["id"]
+
+    # Check grace period keys
+    row = conn.execute(
+        """SELECT id FROM api_keys
+           WHERE key_hash = ? AND is_active = 0
+           AND grace_until IS NOT NULL AND grace_until > ?""",
+        (key_hash, now),
+    ).fetchone()
+
+    conn.close()
+    if row:
+        return True, row["id"]
+
+    return False, None
+
+
 def validate_key(raw_key: str, stored_hash: str) -> bool:
-    """Constant-time comparison of a raw key against a stored hash."""
+    """Constant-time comparison of a raw key against a stored hash.
+
+    Legacy single-key validation (for .api_key file mode).
+    """
     return hmac.compare_digest(hash_key(raw_key), stored_hash)
 
 
 def check_auth(headers: dict, stored_hash: str) -> bool:
-    """Extract Bearer token from the Authorization header and validate it."""
+    """Check auth using the legacy single-key path.
+
+    Used as fallback when api_keys table doesn't exist yet.
+    """
     if not stored_hash:
         return True
     auth_header = headers.get("authorization", "")
@@ -53,6 +162,30 @@ def check_auth(headers: dict, stored_hash: str) -> bool:
         token = auth_header[7:]
         return validate_key(token, stored_hash)
     return False
+
+
+def check_auth_multi(headers: dict) -> tuple:
+    """Check auth using the multi-key database path.
+
+    Returns:
+        (is_valid: bool, key_id: str|None)
+    """
+    auth_header = headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False, None
+    token = auth_header[7:]
+    return validate_key_against_db(token)
+
+
+def has_db_keys() -> bool:
+    """Check if the api_keys table has any ACTIVE keys."""
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT COUNT(*) as c FROM api_keys WHERE is_active = 1").fetchone()
+        conn.close()
+        return row["c"] > 0
+    except Exception:
+        return False
 
 
 def get_actor_from_headers(headers: dict) -> str:
