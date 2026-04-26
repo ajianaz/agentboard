@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -128,6 +128,8 @@ CREATE TABLE IF NOT EXISTS activity (
 );
 CREATE INDEX IF NOT EXISTS idx_activity_project ON activity(project_id);
 CREATE INDEX IF NOT EXISTS idx_activity_created ON activity(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_actor ON activity(actor);
+CREATE INDEX IF NOT EXISTS idx_activity_action ON activity(action);
 
 -- FTS5 Search — content-synced virtual tables
 CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
@@ -169,6 +171,79 @@ CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages BEGIN
 END;
 """
 
+# Schema v5 tables — also available as standalone SQL for tests
+_SCHEMA_V5 = """
+-- KPI Daily: per-agent, per-day metrics
+CREATE TABLE IF NOT EXISTS kpi_daily (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    tasks_created INTEGER DEFAULT 0,
+    tasks_completed INTEGER DEFAULT 0,
+    tasks_moved_to_review INTEGER DEFAULT 0,
+    comments_added INTEGER DEFAULT 0,
+    success_rate REAL DEFAULT 0.0,
+    avg_completion_hours REAL DEFAULT 0.0,
+    activity_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(agent_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_kpi_daily_agent ON kpi_daily(agent_id);
+CREATE INDEX IF NOT EXISTS idx_kpi_daily_date ON kpi_daily(date);
+CREATE INDEX IF NOT EXISTS idx_kpi_daily_agent_date ON kpi_daily(agent_id, date);
+
+-- KPI Weekly: aggregated weekly metrics
+CREATE TABLE IF NOT EXISTS kpi_weekly (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    week_start TEXT NOT NULL,
+    tasks_created INTEGER DEFAULT 0,
+    tasks_completed INTEGER DEFAULT 0,
+    success_rate REAL DEFAULT 0.0,
+    avg_completion_hours REAL DEFAULT 0.0,
+    activity_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(agent_id, week_start)
+);
+CREATE INDEX IF NOT EXISTS idx_kpi_weekly_agent ON kpi_weekly(agent_id);
+CREATE INDEX IF NOT EXISTS idx_kpi_weekly_week ON kpi_weekly(week_start);
+
+-- Discussions: multi-round review system
+CREATE TABLE IF NOT EXISTS discussions (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    title TEXT NOT NULL,
+    target_type TEXT DEFAULT '',
+    target_id TEXT DEFAULT '',
+    status TEXT DEFAULT 'open',
+    current_round INTEGER DEFAULT 1,
+    max_rounds INTEGER DEFAULT 5,
+    created_by TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_discussions_target ON discussions(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_discussions_status ON discussions(status);
+CREATE INDEX IF NOT EXISTS idx_discussions_created ON discussions(created_at DESC);
+
+-- Discussion Feedback: per-round participant feedback
+CREATE TABLE IF NOT EXISTS discussion_feedback (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    discussion_id TEXT NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
+    round INTEGER NOT NULL,
+    participant TEXT NOT NULL,
+    role TEXT DEFAULT '',
+    verdict TEXT DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    word_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_discussion ON discussion_feedback(discussion_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_round ON discussion_feedback(discussion_id, round);
+CREATE INDEX IF NOT EXISTS idx_feedback_participant ON discussion_feedback(discussion_id, participant);
+"""
+
+FULL_SCHEMA_SQL = SCHEMA_SQL + _SCHEMA_V5
+
 
 def get_db(db_path=None) -> sqlite3.Connection:
     """Get a connection to the database. Auto-creates and migrates on first use.
@@ -189,6 +264,7 @@ def get_db(db_path=None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
     _ensure_schema(conn)
     return conn
@@ -228,6 +304,79 @@ CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);""",
     grace_until TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);""",
+        4: """-- Schema v4: agent identity and permissions on api_keys
+ALTER TABLE api_keys ADD COLUMN agent TEXT DEFAULT '';
+ALTER TABLE api_keys ADD COLUMN permissions TEXT DEFAULT 'read,write';
+CREATE INDEX IF NOT EXISTS idx_api_keys_agent ON api_keys(agent);""",
+        5: """-- Schema v5: analytics, KPI, discussions, and retention indexes
+
+-- KPI Daily: per-agent, per-day metrics
+CREATE TABLE IF NOT EXISTS kpi_daily (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    tasks_created INTEGER DEFAULT 0,
+    tasks_completed INTEGER DEFAULT 0,
+    tasks_moved_to_review INTEGER DEFAULT 0,
+    comments_added INTEGER DEFAULT 0,
+    success_rate REAL DEFAULT 0.0,
+    avg_completion_hours REAL DEFAULT 0.0,
+    activity_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(agent_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_kpi_daily_agent ON kpi_daily(agent_id);
+CREATE INDEX IF NOT EXISTS idx_kpi_daily_date ON kpi_daily(date);
+CREATE INDEX IF NOT EXISTS idx_kpi_daily_agent_date ON kpi_daily(agent_id, date);
+
+-- KPI Weekly: aggregated weekly metrics
+CREATE TABLE IF NOT EXISTS kpi_weekly (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    week_start TEXT NOT NULL,
+    tasks_created INTEGER DEFAULT 0,
+    tasks_completed INTEGER DEFAULT 0,
+    success_rate REAL DEFAULT 0.0,
+    avg_completion_hours REAL DEFAULT 0.0,
+    activity_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(agent_id, week_start)
+);
+CREATE INDEX IF NOT EXISTS idx_kpi_weekly_agent ON kpi_weekly(agent_id);
+CREATE INDEX IF NOT EXISTS idx_kpi_weekly_week ON kpi_weekly(week_start);
+
+-- Discussions: multi-round review system
+CREATE TABLE IF NOT EXISTS discussions (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    title TEXT NOT NULL,
+    target_type TEXT DEFAULT '' CHECK(target_type IN ('task', 'page', 'project', '')),
+    target_id TEXT DEFAULT '',
+    status TEXT DEFAULT 'open' CHECK(status IN ('open', 'closed', 'consensus')),
+    current_round INTEGER DEFAULT 1,
+    max_rounds INTEGER DEFAULT 5,
+    created_by TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_discussions_target ON discussions(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_discussions_status ON discussions(status);
+CREATE INDEX IF NOT EXISTS idx_discussions_created ON discussions(created_at DESC);
+
+-- Discussion Feedback: per-round participant feedback
+CREATE TABLE IF NOT EXISTS discussion_feedback (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    discussion_id TEXT NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
+    round INTEGER NOT NULL,
+    participant TEXT NOT NULL,
+    role TEXT DEFAULT '',
+    verdict TEXT DEFAULT '' CHECK(verdict IN ('approve', 'conditional', 'reject', '')),
+    content TEXT NOT NULL DEFAULT '',
+    word_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_discussion ON discussion_feedback(discussion_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_round ON discussion_feedback(discussion_id, round);
+CREATE INDEX IF NOT EXISTS idx_feedback_participant ON discussion_feedback(discussion_id, participant);""",
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)

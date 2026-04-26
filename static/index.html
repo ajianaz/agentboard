@@ -244,6 +244,50 @@ select{appearance:auto}
   .docs-tree{width:200px}
   .stats-bar{grid-template-columns:repeat(2,1fr)}
 }
+
+/* Analytics */
+.analytics-header{padding:16px 24px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.analytics-header h2{font-size:18px;font-weight:600;flex:1}
+.agent-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:0 24px 24px}
+.agent-card{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:16px;transition:border-color .15s}
+.agent-card:hover{border-color:var(--bd2)}
+.agent-card-name{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.agent-card-bar{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-bottom:12px}
+.agent-card-bar-fill{height:100%;border-radius:2px;transition:width .3s}
+.agent-card-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;text-align:center}
+.agent-card-stats .stat-val{font-size:20px;font-weight:700}
+.agent-card-stats .stat-lbl{font-size:11px;color:var(--t2);margin-top:2px}
+
+/* Discussions */
+.disc-list{padding:0 24px 24px;display:flex;flex-direction:column;gap:8px}
+.disc-item{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;cursor:pointer;transition:border-color .15s}
+.disc-item:hover{border-color:var(--bd2)}
+.disc-status{display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600;color:#fff}
+.disc-consensus{display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600;color:#fff}
+.disc-round-dots{display:flex;gap:4px;align-items:center}
+.disc-feedback-item{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rs);padding:12px;margin-bottom:8px}
+.disc-feedback-item:hover{border-color:var(--bd2)}
+
+/* Verdict colors */
+.verdict-approve{color:var(--ok)}
+.verdict-conditional{color:var(--warn)}
+.verdict-reject{color:var(--err)}
+
+/* Activity enhanced */
+.attn-enhanced .attn-filters{display:flex;gap:8px;align-items:center;padding:0 24px 12px;flex-wrap:wrap}
+.attn-enhanced .attn-filters select,.attn-enhanced .attn-filters input{width:auto;padding:5px 10px;font-size:12px}
+
+/* Tab bar */
+.tab-bar{display:flex;gap:0;border-bottom:1px solid var(--bd);padding:0 24px}
+.tab-bar button{padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--t2);font-size:13px;font-weight:500;cursor:pointer;transition:color .15s,border-color .15s}
+.tab-bar button:hover{color:var(--t1)}
+.tab-bar button.active{color:var(--ac);border-bottom-color:var(--ac)}
+
+/* Mobile responsive for new views */
+@media(max-width:768px){
+  .agent-cards{grid-template-columns:1fr}
+  .agent-card-stats{grid-template-columns:repeat(3,1fr)}
+}
 </style>
 </head>
 <body>
@@ -257,11 +301,14 @@ select{appearance:auto}
   <div id="sb-projects"></div>
   <div id="sb-add-proj"></div>
   <div class="sb-sec">System</div>
+  <a href="#analytics">📊 Analytics</a>
+  <a href="#discussions">💬 Discussions</a>
+  <a href="#activity">📋 Activity</a>
   <a href="#agents">🤖 Agents</a>
   <a href="#settings">⚙️ Settings</a>
   <div class="sb-foot">
     <span id="sb-auth" style="cursor:pointer" onclick="showSetup()" title="Click to manage API key">🔓 Read-only</span>
-    <span id="sb-ver">v1.2.0-dev</span>
+    <span id="sb-ver">v1.3.0-dev</span>
   </div>
 </nav>
 
@@ -552,6 +599,9 @@ async function loadSidebar(){
 function getRoute(){
   const h=location.hash||'#overview';
   if(h==='#overview')return{view:'overview'};
+  if(h==='#analytics')return{view:'analytics'};
+  if(h==='#discussions')return{view:'discussions'};
+  if(h==='#activity')return{view:'activity'};
   if(h==='#agents')return{view:'agents'};
   const m=h.match(/^#project\/([^/]+)\/(.+)$/);
   if(m)return{view:m[2],slug:m[1]};
@@ -572,6 +622,9 @@ async function render(){
     case'docs':await renderDocs(app,slug);break;
     case'settings':if(slug)await renderProjectSettings(app,slug);else await renderSystemSettings(app);break;
     case'agents':await renderAgents(app);break;
+    case'analytics':await renderAnalytics(app);break;
+    case'discussions':await renderDiscussions(app);break;
+    case'activity':await renderActivity(app);break;
     default:app.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div><h3>Not found</h3><p>This view doesn't exist</p></div>`;
   }
 }
@@ -1137,6 +1190,246 @@ function doImport(){
     }catch(err){toast('Invalid file','err')}
   };
   input.click();
+}
+
+// ── Analytics ──
+async function renderAnalytics(app){
+  const days = new URLSearchParams(location.hash.split('?')[1]).get('days') || '7';
+  const [agentData, trendData] = await Promise.all([
+    api('GET', `/api/analytics/agents?days=${days}`),
+    api('GET', `/api/analytics/trends?metric=success_rate&days=${days}`)
+  ]);
+  if(!agentData) return;
+  
+  app.innerHTML = `
+    <div class="kb-header">
+      <h2>📊 Analytics</h2>
+      <div class="kb-filters">
+        <select id="analytics-period" onchange="location.hash='#analytics?days='+this.value">
+          <option value="7" ${days==='7'?'selected':''}>7 days</option>
+          <option value="14" ${days==='14'?'selected':''}>14 days</option>
+          <option value="30" ${days==='30'?'selected':''}>30 days</option>
+          <option value="90" ${days==='90'?'selected':''}>90 days</option>
+        </select>
+        <button class="btn btn-s btn-sm" onclick="exportAnalytics()">📥 Export</button>
+      </div>
+    </div>
+    <div style="padding:0 24px 24px">
+      ${agentData.agents.length === 0 ? 
+        '<div class="empty"><div class="empty-icon">📊</div><h3>No agent data yet</h3><p>Register agents and create tasks to see analytics</p></div>' :
+        `<div class="agent-cards">${agentData.agents.map(a => renderAgentCard(a, days)).join('')}</div>`
+      }
+    </div>`;
+}
+
+function renderAgentCard(a, days){
+  const kpi = a.kpi || {};
+  const sr = kpi.avg_success_rate || 0;
+  const srColor = sr >= 80 ? 'var(--ok)' : sr >= 50 ? 'var(--warn)' : 'var(--err)';
+  return `<div class="agent-card">
+    <div class="agent-card-name">
+      <span style="font-size:24px">${a.avatar}</span>
+      <div>
+        <div style="font-weight:600;font-size:14px">${esc(a.name)}</div>
+        <div style="font-size:12px;color:var(--t2)">${esc(a.role||'')}</div>
+      </div>
+      <span style="margin-left:auto;font-size:11px;color:var(--t2)">${a.is_active ? '🟢 Active' : '⚪ Inactive'}</span>
+    </div>
+    <div class="agent-card-bar"><div class="agent-card-bar-fill" style="width:${Math.min(sr,100)}%;background:${srColor}"></div></div>
+    <div class="agent-card-stats">
+      <div><div class="stat-val">${kpi.total_tasks_created||0}</div><div class="stat-lbl">Created</div></div>
+      <div><div class="stat-val">${kpi.total_tasks_completed||0}</div><div class="stat-lbl">Completed</div></div>
+      <div><div class="stat-val" style="color:${srColor}">${sr}%</div><div class="stat-lbl">Success Rate</div></div>
+      <div><div class="stat-val">${kpi.avg_completion_hours||0}h</div><div class="stat-lbl">Avg Time</div></div>
+      <div><div class="stat-val">${kpi.total_activity||0}</div><div class="stat-lbl">Activities</div></div>
+    </div>
+  </div>`;
+}
+
+async function exportAnalytics(){
+  const days = document.getElementById('analytics-period')?.value || '7';
+  const data = await api('GET', `/api/analytics/export?format=csv&days=${days}`);
+  if(!data || !data.content) return toast('No data to export','err');
+  const blob = new Blob([data.content], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = data.filename || 'agentboard_analytics.csv';
+  a.click();
+  toast('Exported '+data.rows+' rows');
+}
+
+// ── Discussions ──
+async function renderDiscussions(app){
+  const data = await api('GET', '/api/discussions?limit=50');
+  if(!data) return;
+  
+  app.innerHTML = `
+    <div class="kb-header">
+      <h2>💬 Discussions</h2>
+      ${isAuthenticated() ? '<button class="btn btn-p btn-sm" onclick="showNewDiscussionModal()">+ New Discussion</button>' : ''}
+    </div>
+    <div style="padding:0 24px 24px">
+      ${data.total === 0 ?
+        '<div class="empty"><div class="empty-icon">💬</div><h3>No discussions yet</h3><p>Discussions are used for multi-round agent review of proposals and decisions</p></div>' :
+        `<div class="disc-list">${data.discussions.map(d => renderDiscussionItem(d)).join('')}</div>`
+      }
+    </div>`;
+}
+
+function renderDiscussionItem(d){
+  const statusCls = d.status==='consensus'?'var(--ok)':d.status==='closed'?'var(--t2)':'var(--ac)';
+  const statusLabel = d.status==='consensus'?'✅ Consensus':d.status==='closed'?'🔴 Closed':'🔵 Open';
+  const rounds = [];
+  for(let i=1;i<=d.max_rounds;i++) rounds.push(`<span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:${i<=d.current_round?'var(--ac)':'var(--bg3)'}"></span>`);
+  return `<div class="disc-item" onclick="showDiscussion('${d.id}')">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <span style="font-weight:600;font-size:14px;flex:1">${esc(d.title)}</span>
+      <span class="disc-status" style="background:${statusCls};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${statusLabel}</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;font-size:12px;color:var(--t2)">
+      <span>R${d.current_round}/${d.max_rounds}</span>
+      <span>${rounds.join(' ')}</span>
+      <span>${d.feedback_count||0} feedback</span>
+      <span style="margin-left:auto">${timeAgo(d.updated_at||d.created_at)}</span>
+    </div>
+  </div>`;
+}
+
+async function showDiscussion(id){
+  const d = await api('GET', `/api/discussions/${id}`);
+  if(!d) return;
+  
+  const feedbackHtml = (d.feedback||[]).map(fb => `
+    <div class="disc-feedback-item">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-weight:600;font-size:13px">${esc(fb.participant)}</span>
+        <span style="font-size:11px;color:var(--t2)">${esc(fb.role||'')}</span>
+        <span style="margin-left:auto">R${fb.round}</span>
+        ${fb.verdict ? `<span class="verdict-${fb.verdict}" style="font-size:11px;font-weight:600;text-transform:uppercase">${fb.verdict}</span>` : ''}
+      </div>
+      <div style="font-size:13px;color:var(--t1);white-space:pre-wrap">${esc(fb.content)}</div>
+    </div>
+  `).join('');
+  
+  const modal = document.getElementById('modal');
+  document.getElementById('modal-bg').classList.add('open');
+  modal.innerHTML = `
+    <div style="max-width:700px;max-height:80vh;overflow-y:auto;padding:24px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <h2 style="flex:1">${esc(d.title)}</h2>
+        <button class="btn btn-s btn-sm" onclick="closeModal()">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--t2);margin-bottom:16px">
+        Status: ${d.status} · Round ${d.current_round}/${d.max_rounds} · ${d.feedback?.length||0} feedback entries · Created ${d.created_at}
+      </div>
+      ${isAuthenticated() ? `
+      <div style="margin-bottom:16px;padding:12px;background:var(--bg2);border-radius:var(--rs)">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px">Add Feedback</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input id="fb-participant" placeholder="Your name" style="flex:1">
+          <select id="fb-verdict"><option value="">No verdict</option><option value="approve">✅ Approve</option><option value="conditional">⚠️ Conditional</option><option value="reject">❌ Reject</option></select>
+        </div>
+        <textarea id="fb-content" placeholder="Your feedback..." rows="3" style="margin-bottom:8px"></textarea>
+        <button class="btn btn-p btn-sm" onclick="submitFeedback('${d.id}')">Submit</button>
+      </div>` : ''}
+      <div style="border-top:1px solid var(--bd);padding-top:12px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Feedback (${d.feedback?.length||0})</div>
+        ${feedbackHtml || '<div style="color:var(--t2);font-size:13px">No feedback yet</div>'}
+      </div>
+    </div>`;
+}
+
+async function submitFeedback(discId){
+  const participant = document.getElementById('fb-participant').value.trim();
+  const content = document.getElementById('fb-content').value.trim();
+  const verdict = document.getElementById('fb-verdict').value;
+  if(!participant || !content) return toast('Name and content required','err');
+  const ok = await api('POST', `/api/discussions/${discId}/feedback`, {participant, content, verdict});
+  if(ok) { toast('Feedback added'); showDiscussion(discId); }
+  else toast('Failed to add feedback','err');
+}
+
+function showNewDiscussionModal(){
+  const modal = document.getElementById('modal');
+  document.getElementById('modal-bg').classList.add('open');
+  modal.innerHTML = `
+    <div style="max-width:500px;padding:24px">
+      <h2 style="margin-bottom:16px">New Discussion</h2>
+      <label style="font-size:12px;color:var(--t2);margin-bottom:4px;display:block">Title</label>
+      <input id="nd-title" placeholder="Discussion topic..." style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--t2);margin-bottom:4px;display:block">Max Rounds</label>
+      <select id="nd-rounds" style="margin-bottom:12px;width:auto">
+        <option value="3">3 rounds</option><option value="5" selected>5 rounds</option><option value="7">7 rounds</option>
+      </select>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-s" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-p" onclick="createDiscussion()">Create</button>
+      </div>
+    </div>`;
+}
+
+async function createDiscussion(){
+  const title = document.getElementById('nd-title').value.trim();
+  const max_rounds = parseInt(document.getElementById('nd-rounds').value);
+  if(!title) return toast('Title required','err');
+  const ok = await api('POST', '/api/discussions', {title, max_rounds});
+  if(ok) { toast('Discussion created'); closeModal(); render(); }
+  else toast('Failed','err');
+}
+
+// ── Activity ──
+async function renderActivity(app){
+  const params = new URLSearchParams(location.hash.split('?')[1]||'');
+  const target_type = params.get('target_type') || '';
+  const action = params.get('action') || '';
+  
+  let url = '/api/activity?limit=100';
+  if(target_type) url += `&target_type=${target_type}`;
+  if(action) url += `&action=${action}`;
+  
+  const [data, stats] = await Promise.all([
+    api('GET', url),
+    api('GET', '/api/activity/stats?days=7')
+  ]);
+  if(!data) return;
+  
+  const targetTypes = ['','task','page','comment','project','discussion'];
+  const actions = ['','create','update','delete','approved','submitted for review','rejected','started'];
+  
+  app.innerHTML = `
+    <div class="kb-header">
+      <h2>📋 Activity</h2>
+      <div class="kb-filters">
+        <select onchange="location.hash='#activity?target_type='+this.value">
+          ${targetTypes.map(t => `<option value="${t}" ${target_type===t?'selected':''}>${t||'All types'}</option>`).join('')}
+        </select>
+        <select onchange="location.hash='#activity?action='+this.value">
+          ${actions.map(a => `<option value="${a}" ${action===a?'selected':''}>${a||'All actions'}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="padding:0 24px 24px">
+      ${stats ? `<div class="stats-bar" style="padding:0 0 16px">
+        <div class="stat-card"><div class="stat-val">${stats.total}</div><div class="stat-lbl">Last 7 days</div></div>
+        ${(stats.by_action||[]).slice(0,3).map(a => `<div class="stat-card"><div class="stat-val">${a.count}</div><div class="stat-lbl">${esc(a.action)}</div></div>`).join('')}
+      </div>` : ''}
+      ${data.activity.length === 0 ?
+        '<div class="empty"><div class="empty-icon">📋</div><h3>No activity yet</h3><p>Activity is logged when tasks, comments, or projects are created/updated</p></div>' :
+        data.activity.map(a => {
+          const detail = a.detail || {};
+          const icon = {task:'📝',page:'📄',comment:'💬',project:'📂',discussion:'💬'}[a.target_type] || '📌';
+          return `<div class="attn-item">
+            <span class="attn-dot" style="background:${{create:'var(--ok)',update:'var(--ac)',delete:'var(--err)',approved:'var(--ok)',rejected:'var(--err)'}[a.action]||'var(--t2)'}"></span>
+            <span>${icon}</span>
+            <div class="attn-info">
+              <div class="title"><strong>${esc(a.actor)}</strong> ${esc(a.action)} ${esc(a.target_type)} ${detail.title ? `"${esc(detail.title)}"` : a.target_id}</div>
+              <div class="sub">${a.project_name ? esc(a.project_name) + ' · ' : ''}${timeAgo(a.created_at)}</div>
+            </div>
+          </div>`;
+        }).join('')
+      }
+      ${data.total > 100 ? '<div style="text-align:center;padding:12px;color:var(--t2)">Showing 100 of '+data.total+'</div>' : ''}
+    </div>`;
 }
 
 // ── Keyboard shortcuts ──
