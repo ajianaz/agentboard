@@ -1,0 +1,14 @@
+# AgentBoard
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.db-shm
+*.db-wal
+.api_key
+*.egg-info/
+dist/
+build/
+.venv/
+.env
+.DS_Store

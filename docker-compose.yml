@@ -1,0 +1,49 @@
+# ── AgentBoard Docker Compose ───────────────────────────────
+#
+# Production deployment pattern:
+#   1. Clone repo to /opt/data/agentboard
+#   2. Copy .env.example → .env, set AGENTBOARD_API_KEY
+#   3. docker compose up -d
+#
+# All data (DB, API key, config) lives in /opt/data/agentboard
+# via bind mount. Survives container restart/recreate.
+
+services:
+  agentboard:
+    # Option A: Pull pre-built image (recommended for production)
+    image: ghcr.io/ajianaz/agentboard:latest
+    # Option B: Build from source (uncomment below, comment image above)
+    # build: .
+
+    container_name: agentboard
+    restart: unless-stopped
+
+    # Environment — reads from .env in the same directory as this file
+    env_file: ./.env
+
+    # Bind mount: host directory → container WORKDIR
+    # Host:  /opt/data/agentboard (where this docker-compose.yml lives)
+    # Guest: /opt/data/agentboard (Dockerfile WORKDIR)
+    # All runtime data (DB, .api_key, agentboard.toml) persists here.
+    volumes:
+      - .:/opt/data/agentboard
+
+    ports:
+      - "8765:8765"
+
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    # ── Traefik reverse proxy (uncomment for public deployment) ──
+    # networks:
+    #   - public-net
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.agentboard.rule=Host(`board.example.com`)"
+    #   - "traefik.http.routers.agentboard.entrypoints=websecure"
+    #   - "traefik.http.routers.agentboard.tls.certresolver=myresolver"
+    #   - "traefik.http.services.agentboard.loadbalancer.server.port=8765"

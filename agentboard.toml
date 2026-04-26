@@ -1,0 +1,50 @@
+# ═══════════════════════════════════════════════════════
+# AgentBoard Configuration
+# ═══════════════════════════════════════════════════════
+#
+# This file is optional — AgentBoard works with defaults
+# if this file is missing. Copy this file as a template.
+#
+# Priority (highest wins):
+#   1. CLI arguments (--port, --host, --config)
+#   2. Environment variables (AGENTBOARD_PORT, AGENTBOARD_HOST)
+#   3. This file (agentboard.toml)
+#   4. Built-in defaults
+#
+# ═══════════════════════════════════════════════════════
+
+[server]
+# Bind address. Use "127.0.0.1" for local-only access.
+host = "0.0.0.0"
+
+# HTTP port. Override with --port or AGENTBOARD_PORT.
+port = 8765
+
+# CORS allowed origins. Use ["*"] for development.
+# For production, set specific domains:
+#   cors_origins = ["https://board.example.com"]
+cors_origins = ["*"]
+
+# Reverse proxy path prefix. E.g. "/board" when behind http_router.
+# Leave empty for direct access.
+proxy_prefix = ""
+
+# Enable request logging to stderr. Override with --log flag.
+log_requests = false
+
+[database]
+# SQLite database path. Relative paths resolve to project root.
+# Use absolute path for custom location, e.g. "/opt/data/agentboard.db".
+path = "agentboard.db"
+
+[auth]
+# API key file path. Relative to project root.
+# Auto-generated on first run if file doesn't exist.
+api_key_file = ".api_key"
+
+[features]
+# Enable data export (GET /api/export)
+export_enabled = true
+
+# Enable data import (POST /api/import)
+import_enabled = true
