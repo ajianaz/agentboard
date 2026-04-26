@@ -1,66 +1,112 @@
 ---
 name: agentboard
-description: "Interact with AgentBoard project board via REST API — create projects, manage tasks, search, export. Works with any AI agent."
-version: 1.0.0
-tags: [project-management, task-board, api, agent-integration, hitl]
+category: devops
+description: AgentBoard — standalone multi-project task board for agent fleet coordination. Zero deps, SQLite, vanilla JS SPA. API-first with HITL workflow.
 ---
 
-# AgentBoard — Agent API Skill
+# AgentBoard
 
-> Interact with any AgentBoard instance via REST API. Create projects, manage tasks, write docs, search, and collaborate with humans through the HITL workflow. Zero dependencies — works with `curl`, `python3`, or any HTTP client.
-
-## When to Use
-
-- "Create a project/task on AgentBoard"
-- "Check my tasks" / "What's on the board?"
-- "Search for tasks about X"
-- "Export/backup AgentBoard data"
-- "Update task status" / "Mark task as done"
-- "Add a comment to a task"
-- "Create a project document/page"
+> Standalone task board for Hermes fleet coordination. Clone → onboard → use.
 
 ## Quick Reference
 
-| Key | Value |
-|-----|-------|
-| **Default URL** | `http://localhost:8765` |
-| **Auth** | `Authorization: Bearer <api_key>` |
-| **Key file** | `.api_key` (auto-generated on first run) |
-| **Content-Type** | `application/json` |
-| **Response format** | `{"resource": {...}}` (wrapped) |
-| **Total endpoints** | 31 |
+| Item | Value |
+|------|-------|
+| **Repo** | `github.com/ajianaz/agentboard` |
+| **Branch** | `main` (production) |
+| **Install** | `git clone --branch main https://github.com/ajianaz/agentboard.git` |
+| **Setup** | `python3 server.py` → auto-creates DB + `.api_key` |
+| **Onboard** | `python3 onboard.py --yes` → registers agents + projects |
+| **API Base** | `http://127.0.0.1:8765/api` |
+| **Dashboard** | `http://127.0.0.1:8765` |
+| **Auth** | GET = public (default), POST/PATCH/DELETE = `Bearer <api_key>` (from `.api_key`) |
+| **Public Read** | `auth.public_read=true` default — toggle via env `AGENTBOARD_PUBLIC_READ` |
+| **Tech** | Python 3.11+ stdlib, SQLite WAL, vanilla HTML/CSS/JS |
 
-## Key Rules
+## Files
 
-1. **Always auth** — All `/api/*` endpoints require `Authorization: Bearer <key>` (except `/api/setup`)
-2. **Wrapped responses** — POST returns `{"project": {...}}`, `{"task": {...}}` — access via `d["project"]["slug"]`
-3. **HITL pattern** — Agents create tasks as `proposed` → humans approve via dashboard
-4. **Slug-based** — Projects identified by slug, tasks by ID
-5. **Soft delete** — `DELETE /api/projects/{slug}` archives, doesn't destroy
+| File | Purpose |
+|------|---------|
+| `AGENTS.md` | **Single source of truth** — full API reference, schema, conventions |
+| `onboard.py` | Fleet onboard script — registers agents, creates starter projects |
+| `skills/agentboard/SKILL.md` | This file — quick reference hub |
+| `skills/agentboard/references/api_reference.md` | All 34+ endpoints with auth table |
+| `skills/agentboard/references/client.py` | **Python client wrapper** — `from client import Board` |
+| `skills/agentboard/references/workflows.md` | Common agent workflows (7 patterns) |
+| `skills/agentboard/references/pitfalls.md` | Gotchas, edge cases, troubleshooting (14 items) |
 
-## Setup (First Use)
+## Python Client (Recommended)
+
+```python
+import sys
+sys.path.insert(0, "/opt/data/agentboard/skills/agentboard/references")
+from client import Board
+
+board = Board(actor="cto")  # auto-reads .api_key
+
+# Check my tasks
+tasks = board.my_tasks("cto")
+
+# Propose a task
+task = board.propose("hermes-fleet", "Fix auth bug", assignee="cto")
+
+# Start working
+board.start(task["id"], comment="On it")
+
+# Submit for review
+board.submit_review(task["id"], comment="Ready for review")
+
+# Check workload
+stats = board.get_workload("cto")
+print(f"Total: {stats['total']}, Done: {stats['completed']}")
+```
+
+## Agent Workflow (TL;DR)
 
 ```bash
-# 1. Get API key (auto-generated on first run)
-KEY=$(cat .api_key)
+# 1. Get API key
+KEY=$(cat /opt/data/agentboard/.api_key)
 
-# 2. Verify connection
-curl -s -H "Authorization: Bearer $KEY" http://localhost:8765/api/stats
+# 2. Check your tasks
+curl -H "Authorization: Bearer $KEY" \
+  "http://127.0.0.1:8765/api/tasks?project=all&assignee=YOUR_ID"
+
+# 3. Create proposed task (needs owner approval)
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  "http://127.0.0.1:8765/api/projects/{slug}/tasks" \
+  -d '{"title":"...","status":"proposed","assignee":"YOUR_ID","created_by":"agent:YOUR_ID"}'
+
+# 4. Update progress
+curl -X PATCH -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  "http://127.0.0.1:8765/api/tasks/{id}" -d '{"status":"in_progress"}'
+
+# 5. Submit for review
+curl -X PATCH -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  "http://127.0.0.1:8765/api/tasks/{id}" -d '{"status":"review","comment":"Ready"}'
 ```
 
-## Common Workflow
+## HITL Task Lifecycle
 
 ```
-Register agent → Create/find project → Create task (proposed) → Poll for human feedback → Update status
+proposed → todo → in_progress → review → done
+                                  ↓
+                              rejected → in_progress
 ```
 
-See [`references/workflows.md`](references/workflows.md) for detailed step-by-step guides.
+- **Agent** creates tasks as `proposed` → owner approves → `todo`
+- **Agent** works → `in_progress` → submits → `review`
+- **Owner** approves → `done` OR rejects → `rejected` (agent revises)
 
-## Linked Files
+## Key Endpoints
 
-| File | Description |
-|------|-------------|
-| [`references/api_reference.md`](references/api_reference.md) | All 31 endpoints with request/response format |
-| [`references/code_examples.md`](references/code_examples.md) | Python & curl code snippets for every operation |
-| [`references/workflows.md`](references/workflows.md) | Common agent workflows (HITL, project setup, reporting) |
-| [`references/pitfalls.md`](references/pitfalls.md) | Gotchas, edge cases, troubleshooting |
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/stats` | Board overview |
+| GET | `/api/tasks?project=all&assignee=me` | My tasks |
+| POST | `/api/projects/{slug}/tasks` | Create task (supports `parent_id`) |
+| PATCH | `/api/tasks/{id}` | Update task |
+| GET | `/api/tasks/{id}/children` | Subtasks of a parent |
+| GET | `/api/agents/{id}` | Agent profile |
+| GET | `/api/agents/{id}/workload` | Agent workload |
+| GET | `/api/search?q=...` | Full-text search |
+| GET | `/api/export` | Full backup |

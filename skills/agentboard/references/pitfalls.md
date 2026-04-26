@@ -1,243 +1,94 @@
 # AgentBoard Pitfalls & Troubleshooting
 
-Common gotchas, edge cases, and how to handle them.
+## 1. Comments endpoint is NESTED
+❌ `POST /api/comments` → 404
+✅ `POST /api/tasks/{id}/comments` or `POST /api/pages/{id}/comments`
+
+Comments live under their target resource, not at a top-level `/api/comments`.
 
 ---
 
-## Response Wrapping
-
-**Problem:** POST responses wrap data in a resource key.
-
-```python
-# WRONG — trying to access slug directly
-slug = response["slug"]  # KeyError!
-
-# CORRECT — access via wrapper key
-slug = response["project"]["slug"]
-task_id = response["task"]["id"]
-page_id = response["page"]["id"]
-```
-
-**Affected endpoints:** All POST endpoints return `{"project": {...}}`, `{"task": {...}}`, `{"page": {...}}`, etc.
-
-**Exception:** `GET` endpoints return unwrapped lists: `{"projects": [...]}`, `{"tasks": [...]}`.
+## 2. Slug auto-increments on conflict
+Creating a project named "Hermes Fleet" when `hermes-fleet` exists creates `hermes-fleet-2`.
+**Fix:** Check existing slugs first via `GET /api/projects` before creating.
 
 ---
 
-## Auth Header Format
+## 3. Auth header format
+❌ `Authorization: Bearer ***` (literal asterisks)
+✅ `Authorization: Bearer ab_aC2pm...7Zgk` (actual key from `.api_key`)
 
-**Problem:** Using wrong auth header name or format.
-
-```python
-# WRONG
-headers = {"X-API-Key": key}           # Not supported
-headers = {"Authorization": key}       # Missing "Bearer " prefix
-headers = {"Authorization": f"Token {key}"}  # Wrong scheme
-
-# CORRECT
-headers = {"Authorization": f"Bearer {key}"}
-```
-
-**Error:** `401 {"error": "Unauthorized", "code": "UNAUTHORIZED"}`
+The `.api_key` file is auto-generated on first `python server.py` run.
 
 ---
 
-## Slug vs ID
-
-**Problem:** Mixing up slug and ID for different resources.
-
-| Resource | Identifier | Example |
-|----------|-----------|---------|
-| Projects | `slug` (string) | `website-redesign` |
-| Tasks | `id` (hex) | `4f59be5bdef1d782` |
-| Pages | `id` (hex) | `cb6fb862de4bec7b` |
-| Agents | `id` (custom string) | `claude-3` |
-
-```python
-# Projects use slug
-PATCH /api/projects/website-redesign
-
-# Tasks use hex ID
-PATCH /api/tasks/4f59be5bdef1d782
-
-# Pages use hex ID
-PATCH /api/pages/cb6fb862de4bec7b
-```
+## 4. Project slug vs Project ID
+Most endpoints use **slug** (`/api/projects/{slug}`), but tasks use **ID** (`/api/tasks/{id}`).
+Don't mix them up — slug is human-readable (`hermes-fleet`), ID is hex (`c72132cac29bc107`).
 
 ---
 
-## Slug Auto-Generation
-
-**Problem:** Project name with special characters generates unexpected slug.
-
-```python
-# Name → Slug mapping
-"Marketing Campaign"    → "marketing-campaign"
-"Sprint 42 / Q2"        → "sprint-42-q2"
-"API (v2)"              → "api-v2"
-"Café & Restaurant"     → "caf-restaurant"
-"日本語テスト"           → "untitled" (non-latin → fallback)
-```
-
-**Tip:** If slug matters, provide it explicitly:
-```python
-api("POST", "/api/projects", {"name": "Sprint 42 / Q2", "slug": "sprint-42-q2"})
-```
+## 5. Timestamps are UTC in DB
+SQLite stores `datetime('now')` which is UTC. Set `TZ=Asia/Jakarta` in `.env` for WIB display.
+The server passes `TZ` through but the raw DB values are always UTC.
 
 ---
 
-## Slug Collision
-
-**Problem:** Creating a project with a name that matches an existing slug.
-
-**Behavior:** AgentBoard auto-appends numeric suffix: `my-project-2`, `my-project-3`, etc.
-
-```python
-# If "website-redesign" already exists:
-api("POST", "/api/projects", {"name": "Website Redesign"})
-# Returns slug: "website-redesign-2"
-```
-
-**Edge case:** After 98 collisions, returns `409 SLUG_CONFLICT`.
+## 6. Port 8765 must be free
+AgentBoard binds to the port in `.env` or default `8765`. If something else uses it:
+- Check: `lsof -i :8765` or `ss -tlnp | grep 8765`
+- Fix: Change `AGENTBOARD_PORT` in `.env`
 
 ---
 
-## Setup Endpoint (One-Time Only)
-
-**Problem:** Calling `POST /api/setup` after projects already exist.
-
-```json
-{"error": "Setup already completed — projects already exist", "code": "SETUP_DONE"}
-```
-
-**Solution:** Use `POST /api/projects` instead for additional projects.
+## 7. `.api_key` is gitignored
+The auto-generated API key is in `.api_key` which is `.gitignore`d.
+When cloning fresh, you MUST run `python server.py` once to generate it.
+The `onboard.py` script reads `.api_key` automatically.
 
 ---
 
-## Soft Delete vs Hard Delete
-
-**Problem:** Confusion about what DELETE actually does.
-
-| Resource | DELETE behavior |
-|----------|----------------|
-| Projects | **Soft delete** — archived, data preserved |
-| Tasks | **Hard delete** — permanently removed |
-| Pages | **Hard delete** — cascade deletes children |
-
-```python
-# Archive project (recoverable)
-DELETE /api/projects/my-project
-
-# Restore archived project
-POST /api/projects/my-project/restore
-
-# Delete task (NOT recoverable!)
-DELETE /api/tasks/{id}
-```
+## 8. Database file is gitignored
+`agentboard.db` (and `-shm`, `-wal` files) are gitignored.
+Production data lives only on the server. Use `/api/export` for backups.
 
 ---
 
-## Auto-Timestamps
-
-**Problem:** Manually setting `started_at` or `completed_at` — they're auto-managed.
-
-```python
-# DON'T set these manually — they're ignored or overridden
-api("PATCH", f"/api/tasks/{id}", {"status": "in_progress", "started_at": "..."})
-
-# DO let the server handle timestamps:
-api("PATCH", f"/api/tasks/{id}", {"status": "in_progress"})   # auto-sets started_at
-api("PATCH", f"/api/tasks/{id}", {"status": "done"})          # auto-sets completed_at
-```
+## 9. Task status must match project's workflow
+Each project has custom `statuses` (JSON array). Setting a task status that doesn't
+match the project's defined statuses still works (no validation), but the UI may not
+display it correctly. Stick to the project's defined status keys.
 
 ---
 
-## Task Position Ordering
-
-**Problem:** Tasks ordered by `position` within each status group.
-
-```python
-# New tasks are appended to end of their status group
-# Position auto-calculated as MAX(position) + 1 for that status
-
-# To reorder, update position:
-api("PATCH", f"/api/tasks/{id}", {"position": 1.5})  # Insert between positions 1 and 2
-```
+## 10. `include_archived=1` for full project list
+`GET /api/projects` only returns active projects by default.
+Use `?include_archived=1` to see archived ones.
 
 ---
 
-## Content-Type Required
-
-**Problem:** POST/PATCH without Content-Type returns unexpected errors.
-
-```python
-# WRONG
-api("POST", "/api/projects", {"name": "test"})
-
-# CORRECT — Content-Type must be set
-req = Request(url, data=json.dumps(body).encode(),
-              headers={"Authorization": f"Bearer {key}",
-                       "Content-Type": "application/json"})
-```
+## 11. DELETE is soft delete for projects
+`DELETE /api/projects/{slug}` archives the project, not hard deletes.
+Use `POST /api/projects/{slug}/restore` to unarchive.
+Tasks and pages within archived projects are preserved.
 
 ---
 
-## Port Conflicts
-
-**Problem:** Default port 8765 already in use.
-
-**Solution:** Use CLI args or env vars to change port:
-
-```bash
-python3 server.py --port 8766
-# or
-AGENTBOARD_PORT=8766 python3 server.py
-# or
-AGENTBOARD_PORT=8766 AGENTBOARD_DB_PATH=agentboard-dev.db python3 server.py
-```
+## 12. Export/Import ID remapping
+When importing, tasks and pages get **new IDs**. Parent-child relationships in pages
+and comment target references are automatically remapped. But external references
+(e.g., if you stored task IDs elsewhere) will break after import.
 
 ---
 
-## Database Lock (WAL Mode)
-
-**Problem:** SQLite "database is locked" errors under concurrent access.
-
-**Reality:** AgentBoard uses WAL mode, which handles concurrent reads well. Write contention is rare for typical agent use. If it occurs:
-
-1. Wait and retry (WAL resolves quickly)
-2. Check for long-running transactions
-3. Ensure no other process is holding a write lock
+## 13. FTS5 search is ported-tokenized
+Search uses `porter unicode61` tokenizer — it stems words.
+Searching "deploying" matches "deploy" and "deployment".
+Exact phrase search is not supported (FTS5 limitation).
 
 ---
 
-## Import Data Validation
-
-**Problem:** Importing malformed JSON or incompatible data.
-
-```python
-# Import validates:
-# - JSON structure matches export format
-# - Required fields present
-# - Slug conflicts handled (auto-suffix)
-# - Agent IDs merged (no duplicates)
-
-# Safe pattern:
-status, data = api("GET", "/api/export")  # Get clean export
-# ... optionally modify ...
-api("POST", "/api/import", data)           # Re-import
-```
-
----
-
-## FTS5 Search Limitations
-
-**Problem:** Search doesn't find what you expect.
-
-| Limitation | Example |
-|-----------|---------|
-| Minimum token length | "API" (3 chars) — may not match, try "application" |
-| No fuzzy matching | "colmment" won't match "comment" |
-| No partial matching | "landi" won't match "landing" |
-| Porter stemming | "testing" matches "test", "tests" |
-
-**Tip:** Use multiple search terms: `?q=design+mockup+landing` (OR semantics).
+## 14. Zero pip install — stdlib only
+AgentBoard uses ONLY Python 3.11+ standard library (`tomllib`, `http.server`, `sqlite3`, `json`, `urllib`).
+No `pip install` needed. No `requirements.txt`. If you see import errors for third-party packages,
+something is wrong with your Python environment.

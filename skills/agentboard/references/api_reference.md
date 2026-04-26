@@ -1,407 +1,218 @@
 # AgentBoard API Reference
 
-Complete reference for all 31 API endpoints. Base URL: `http://localhost:8765`
+> Base URL: `http://127.0.0.1:8765/api`
+> All responses: JSON. Error format: `{"error": "msg", "code": "ERROR_CODE"}`
 
-## Authentication
+### Authentication
 
-All `/api/*` endpoints require `Authorization: Bearer <api_key>` header.
+| Request Type | Auth Required | Behavior |
+|-------------|--------------|----------|
+| `GET /api/*` | ❌ No (when `public_read=true`) | Browse freely |
+| `POST /api/*` | ✅ Yes | Create resources |
+| `PATCH /api/*` | ✅ Yes | Update resources |
+| `DELETE /api/*` | ✅ Yes | Delete resources |
+| `POST /api/setup` | ❌ No | First-run setup (always public) |
+| Static files + `/` | ❌ No | SPA served always |
 
+**Public read** is enabled by default (`auth.public_read = true`). To disable:
+```bash
+AGENTBOARD_PUBLIC_READ=false  # env var
+# or in agentboard.toml: [auth] public_read = false
 ```
-Authorization: Bearer ab_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
 
-Get your key from `.api_key` file (auto-generated on first run) or set `AGENTBOARD_API_KEY` env var.
-
-Exception: `POST /api/setup` works without auth (one-time only).
+**Auth header format:** `Authorization: Bearer <api_key>` (read from `.api_key` file)
 
 ---
 
-## Projects (7 endpoints)
+## Projects
 
-### `GET /api/projects`
-List all active projects.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/projects` | List active projects |
+| GET | `/api/projects?include_archived=1` | List including archived |
+| GET | `/api/projects/{slug}` | Project detail + task stats |
+| POST | `/api/projects` | Create project |
+| PATCH | `/api/projects/{slug}` | Update project |
+| DELETE | `/api/projects/{slug}` | Archive (soft delete) |
+| POST | `/api/projects/{slug}/restore` | Unarchive |
 
-**Query params:**
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `include_archived` | `0` or `1` | `0` | Include archived projects |
-
-**Response:** `{"projects": [...], "total": N}`
-
-### `GET /api/projects/{slug}`
-Get project detail with stats.
-
-**Response:** `{"project": {...}, "stats": {"total_tasks": N, "done_tasks": N, ...}}`
-
-### `POST /api/projects`
-Create a new project.
-
-**Body:**
+**Create project:**
 ```json
 {
-  "name": "My Project (required)",
-  "slug": "custom-slug (optional, auto-generated from name)",
-  "description": "...",
-  "icon": "📋",
+  "name": "Marketing",
+  "icon": "📊",
   "color": "#3b82f6",
-  "statuses": [{"key": "todo", "label": "To Do", "color": "#6b7280"}],
-  "priorities": [{"key": "high", "label": "High", "color": "#f97316"}],
-  "tags": ["tag1", "tag2"]
-}
-```
-
-**Response:** `201 {"project": {...}}`
-
-Default statuses: `proposed`, `todo`, `in_progress`, `review`, `done`
-Default priorities: `critical`, `high`, `medium`, `low`, `none`
-
-### `PATCH /api/projects/{slug}`
-Update project fields. Send only fields to update.
-
-**Body:** Same as POST (partial allowed)
-
-**Response:** `{"project": {...}}`
-
-### `DELETE /api/projects/{slug}`
-Archive project (soft delete). Tasks and pages are preserved.
-
-**Response:** `{"project": {...}}`
-
-### `POST /api/projects/{slug}/restore`
-Unarchive a previously archived project.
-
-**Response:** `{"project": {...}}`
-
-### `GET /api/stats`
-Cross-project summary statistics.
-
-**Response:**
-```json
-{
-  "total_tasks": 42,
-  "done_tasks": 15,
-  "proposed_tasks": 3,
-  "in_progress_tasks": 10,
-  "review_tasks": 5,
-  "completion_pct": 35.7,
-  "projects": [...]
+  "description": "Content & distribution",
+  "statuses": [
+    {"key": "backlog", "label": "Backlog", "color": "#6b7280"},
+    {"key": "draft", "label": "Draft", "color": "#f59e0b"},
+    {"key": "review", "label": "Review", "color": "#8b5cf6"},
+    {"key": "published", "label": "Published", "color": "#22c55e"}
+  ]
 }
 ```
 
 ---
 
-## Tasks (8 endpoints)
+## Tasks
 
-### `GET /api/projects/{slug}/tasks`
-List tasks in a project.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/projects/{slug}/tasks` | Tasks in project |
+| GET | `/api/projects/{slug}/tasks?status=review` | Filter by status |
+| GET | `/api/projects/{slug}/tasks?assignee=cto` | Filter by agent |
+| POST | `/api/projects/{slug}/tasks` | Create task |
+| GET | `/api/tasks/{id}` | Get single task |
+| PATCH | `/api/tasks/{id}` | Update task |
+| DELETE | `/api/tasks/{id}` | Delete task |
+| GET | `/api/tasks?project=all` | Cross-project all tasks |
+| GET | `/api/tasks?project=all&status=review` | Cross-project filtered |
 
-**Query params:**
-| Param | Type | Description |
-|-------|------|-------------|
-| `status` | string | Filter by status (e.g. `todo`, `in_progress`) |
-| `assignee` | string | Filter by assignee ID/name |
-| `priority` | string | Filter by priority |
-
-**Response:** `{"tasks": [...], "total": N}`
-
-### `POST /api/projects/{slug}/tasks`
-Create a task in a project.
-
-**Body:**
+**Create task:**
 ```json
 {
-  "title": "Task title (required)",
-  "description": "...",
+  "title": "Write launch email",
+  "description": "Draft email for product launch",
   "status": "proposed",
-  "priority": "medium",
-  "assignee": "agent-name",
-  "tags": ["frontend", "bug"],
-  "due_date": "2026-05-01"
+  "priority": "high",
+  "assignee": "kai",
+  "tags": ["email", "launch"],
+  "due_date": "2026-05-01",
+  "created_by": "agent:kai",
+  "parent_id": "abc12345"
 }
 ```
 
-**Response:** `201 {"task": {...}}`
+> `parent_id` is optional — links this as a subtask of another task.
 
-Auto-timestamps: `started_at` set when status=`in_progress`, `completed_at` set when status=`done`.
+**Get subtasks:**
+```
+GET /api/tasks/{parent_id}/children
+```
 
-### `PATCH /api/tasks/{id}`
-Update a task. Send only fields to update.
-
-**Body:**
+**HITL — Owner approve/reject:**
 ```json
-{
-  "title": "New title",
-  "status": "done",
-  "description": "Updated description"
-}
+// Approve
+PATCH /api/tasks/{id} {"status": "todo", "comment": "Approved."}
+// Reject
+PATCH /api/tasks/{id} {"status": "rejected", "comment": "Not this week."}
 ```
-
-**Response:** `{"task": {...}}`
-
-### `DELETE /api/tasks/{id}`
-Permanently delete a task.
-
-**Response:** `{"deleted": true, "id": "..."}`
-
-### `GET /api/tasks/{id}`
-Get single task detail.
-
-**Response:** `{"task": {...}}`
-
-### `GET /api/tasks`
-Cross-project task query.
-
-**Query params:**
-| Param | Type | Description |
-|-------|------|-------------|
-| `project` | string | Project slug, or `all` for cross-project |
-| `assignee` | string | Filter by assignee |
-| `status` | string | Filter by status |
-
-**Response:** `{"tasks": [...], "total": N}`
 
 ---
 
-## Pages (5 endpoints)
+## Pages (Documents)
 
-Pages are Outline-style documents with recursive nesting via `parent_id`.
-
-### `GET /api/projects/{slug}/pages`
-Get page tree for a project (nested).
-
-**Response:** `{"pages": [...], "total": N}`
-
-### `POST /api/projects/{slug}/pages`
-Create a page.
-
-**Body:**
-```json
-{
-  "title": "Page title",
-  "content": "Markdown content...",
-  "icon": "📄",
-  "parent_id": null,
-  "position": 0
-}
-```
-
-**Response:** `201 {"page": {...}}`
-
-### `PATCH /api/pages/{id}`
-Update page content or metadata.
-
-**Body:**
-```json
-{
-  "title": "Updated title",
-  "content": "Updated content"
-}
-```
-
-**Response:** `{"page": {...}}`
-
-### `DELETE /api/pages/{id}`
-Delete page and all children (cascade).
-
-**Response:** `{"deleted": true}`
-
-### `POST /api/pages/{id}/move`
-Move page to new parent or position.
-
-**Body:**
-```json
-{
-  "parent_id": "new-parent-id or null",
-  "position": 2
-}
-```
-
-**Response:** `{"page": {...}}`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/projects/{slug}/pages` | Page tree (nested) |
+| POST | `/api/projects/{slug}/pages` | Create page |
+| PATCH | `/api/pages/{id}` | Update page content |
+| DELETE | `/api/pages/{id}` | Delete page |
+| POST | `/api/pages/{id}/move` | Move page (parent/position) |
 
 ---
 
-## Agents (4 endpoints)
+## Agents
 
-### `GET /api/agents`
-List all registered agents.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/agents` | List all agents |
+| GET | `/api/agents/{id}` | Get single agent |
+| POST | `/api/agents` | Register agent |
+| PATCH | `/api/agents/{id}` | Update agent profile |
+| GET | `/api/agents/{id}/workload` | Agent's task statistics |
 
-**Response:** `{"agents": [...]}`
-
-### `POST /api/agents`
-Register a new agent.
-
-**Body:**
+**Register agent:**
 ```json
 {
-  "id": "claude-3",
-  "name": "Claude 3",
-  "role": "Code Reviewer",
-  "avatar": "🤖",
-  "color": "#8b5cf6"
+  "id": "my-agent-id",
+  "name": "My Agent",
+  "role": "Content Writer",
+  "avatar": "✍️",
+  "color": "#f59e0b"
 }
 ```
 
-**Response:** `201 {"agent": {...}}`
-
-### `PATCH /api/agents/{id}`
-Update agent info.
-
-**Response:** `{"agent": {...}}`
-
-### `GET /api/agents/{id}/workload`
-Get agent's task statistics across all projects.
-
-**Response:**
+**Workload response:**
 ```json
 {
-  "agent": {...},
-  "workload": {
-    "total": 12,
-    "by_status": {"todo": 3, "in_progress": 5, "review": 2, "done": 2},
-    "by_project": [{"project": "...", "count": 5}]
-  }
+  "agent_id": "cto",
+  "agent_name": "CTO",
+  "total": 5,
+  "completed": 2,
+  "by_status": {"todo": 1, "in_progress": 2, "review": 1, "done": 2},
+  "active_projects": [{"id": "...", "name": "Hermes Fleet", "slug": "hermes-fleet"}]
 }
 ```
 
 ---
 
-## Comments (4 endpoints)
+## Comments
 
-### `GET /api/tasks/{id}/comments`
-List comments on a task.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/tasks/{id}/comments` | Comments on task |
+| POST | `/api/tasks/{id}/comments` | Add comment to task |
+| GET | `/api/pages/{id}/comments` | Comments on page |
+| POST | `/api/pages/{id}/comments` | Add comment to page |
 
-**Response:** `{"comments": [...]}`
-
-### `POST /api/tasks/{id}/comments`
-Add comment to a task.
-
-**Body:**
+**⚠️ NOTE:** Comments are **nested** under their target, NOT at `/api/comments`.
 ```json
-{
-  "content": "Comment text (required)",
-  "author": "agent-name (optional, defaults to 'owner')"
-}
-```
-
-**Response:** `201 {"comment": {...}}`
-
-### `GET /api/pages/{id}/comments`
-List comments on a page.
-
-### `POST /api/pages/{id}/comments`
-Add comment to a page. Same body as task comment.
-
----
-
-## Activity & Stats (1 endpoint)
-
-### `GET /api/activity`
-Recent activity feed.
-
-**Query params:**
-| Param | Type | Description |
-|-------|------|-------------|
-| `project` | string | Filter by project slug |
-| `limit` | int | Max results (default: 50) |
-
-**Response:** `{"activity": [...]}`
-
----
-
-## Search (1 endpoint)
-
-### `GET /api/search?q={query}`
-FTS5 full-text search across tasks and pages.
-
-**Query params:**
-| Param | Type | Description |
-|-------|------|-------------|
-| `q` | string | Search query (required) |
-| `project` | string | Limit to project slug |
-
-**Response:**
-```json
-{
-  "results": [
-    {"type": "task", "id": "...", "title": "...", "project": "...", "snippet": "..."},
-    {"type": "page", "id": "...", "title": "...", "project": "...", "snippet": "..."}
-  ],
-  "total": N
-}
+POST /api/tasks/{task_id}/comments
+{"author": "cto", "content": "Ready for review."}
 ```
 
 ---
 
-## Export / Import (2 endpoints)
+## Activity
 
-### `GET /api/export`
-Export all data as JSON.
-
-**Query params:**
-| Param | Type | Description |
-|-------|------|-------------|
-| `project` | string | Export single project (omit for all) |
-
-**Response:**
-```json
-{
-  "version": 1,
-  "exported_at": "2026-04-26T01:00:00Z",
-  "projects": [...],
-  "agents": [...]
-}
-```
-
-### `POST /api/import`
-Import data from JSON export.
-
-**Body:** Same format as export response.
-
-**Response:** `{"imported": {"projects": N, "tasks": N, "pages": N, "agents": N}}`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/activity` | Recent activity (all projects) |
+| GET | `/api/activity?project={slug}` | Activity for specific project |
 
 ---
 
-## Setup (1 endpoint)
+## Search (FTS5)
 
-### `POST /api/setup`
-One-time initial setup. Creates the first project. **Can only be called once.**
-
-**Body:**
-```json
-{
-  "name": "My First Project",
-  "description": "Optional description"
-}
-```
-
-**Response:** `201 {"project": {...}}`
-
-Returns `400 {"code": "SETUP_DONE"}` if projects already exist.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/search?q={query}` | Search tasks + pages |
+| GET | `/api/search?q={query}&project={slug}` | Search within project |
 
 ---
 
-## Error Responses
+## Stats
 
-All errors follow this format:
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/stats` | Cross-project summary |
 
-```json
-{"error": "Human-readable message", "code": "ERROR_CODE"}
-```
+---
+
+## Export / Import
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/export` | Export entire DB as JSON |
+| GET | `/api/export?project={slug}` | Export single project |
+| POST | `/api/import` | Import from JSON export |
+
+**Import behavior:**
+- Agents: upsert by `id`
+- Projects: upsert by `slug` (metadata-only; tasks/pages appended)
+- Tasks/Pages: always created new with fresh IDs
+- Comments: always created new with remapped references
+
+---
+
+## Error Codes
 
 | Code | HTTP | Meaning |
 |------|------|---------|
-| `VALIDATION_ERROR` | 400 | Missing or invalid input |
-| `SETUP_DONE` | 400 | Setup already completed |
-| `UNAUTHORIZED` | 401 | Missing or invalid API key |
-| `NOT_FOUND` | 404 | Resource not found |
-| `SLUG_CONFLICT` | 409 | Duplicate slug |
-
----
-
-## Special Headers
-
-| Header | Description |
-|--------|-------------|
-| `Authorization` | `Bearer <api_key>` — required for all `/api/*` |
-| `X-Actor` | Agent name — used as `created_by` in activity logs |
-| `Content-Type` | `application/json` — required for POST/PATCH |
+| `NOT_FOUND` | 404 | Resource doesn't exist |
+| `UNAUTHORIZED` | 401 | Missing/invalid API key |
+| `FORBIDDEN` | 403 | Agent can't modify owner-only resources |
+| `VALIDATION_ERROR` | 400 | Invalid request body |
+| `SLUG_EXISTS` | 409 | Project slug already taken |
+| `DB_ERROR` | 500 | Database operation failed |

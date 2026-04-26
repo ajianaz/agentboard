@@ -411,7 +411,21 @@ CREATE VIRTUAL TABLE pages_fts USING fts5(
 
 ## API Reference
 
-All API endpoints return JSON. Auth via `Authorization: Bearer <api_key>` header.
+All API endpoints return JSON.
+
+### Authentication
+
+| Request Type | Auth Required | Behavior |
+|-------------|--------------|----------|
+| `GET /api/*` | ❌ No (when `public_read=true`) | Browse freely |
+| `POST /api/*` | ✅ Yes | Create resources |
+| `PATCH /api/*` | ✅ Yes | Update resources |
+| `DELETE /api/*` | ✅ Yes | Delete resources |
+| `POST /api/setup` | ❌ No | First-run setup (always public) |
+
+**Public read** is enabled by default. Write operations require: `Authorization: Bearer <api_key>`
+
+To disable public read: `AGENTBOARD_PUBLIC_READ=false` or `[auth] public_read = false` in `agentboard.toml`.
 
 ### Base URL
 `http://localhost:8765/api`
@@ -771,6 +785,7 @@ path = "agentboard.db"         # SQLite file path (relative to project root)
 
 [auth]
 api_key_file = ".api_key"      # File to store/load API key
+public_read = true             # Allow GET /api/* without auth
 
 [features]
 export_enabled = true           # Enable /api/export endpoints
@@ -813,10 +828,48 @@ reload_config()               # Force re-read (useful in tests)
 
 ## Development
 
+### ⚠️ Production Isolation Rule
+
+**CRITICAL:** If a production server is running from this repository, NEVER `git checkout` a different branch without following this protocol:
+
+```bash
+# 1. Check if production is running — identify its CWD and branch
+ps aux | grep "server.py" | grep -v grep
+
+# 2. Stash any uncommitted changes
+git stash
+
+# 3. Ensure production stays on main (or its current branch)
+git checkout main
+
+# 4. Restart production from the correct branch
+# (kill old process, restart from main)
+
+# 5. NOW switch to your feature branch for development
+git checkout -b feat/my-feature main
+```
+
+**Why:** `git checkout` changes the working tree files that the production server is using. If production is reading `server.py` and you switch branches, the running server may crash or serve wrong code.
+
+**Safer alternative:** Clone to a separate directory for development:
+```bash
+git clone /opt/data/agentboard /tmp/agentboard-dev
+cd /tmp/agentboard-dev && git checkout -b feat/my-feature
+```
+
+### Dev Server
+
 ```bash
 # Run dev server (auto-reload on file change)
 python server.py --dev
 
+# Run on different port (avoids conflicting with production)
+AGENTBOARD_PORT=8766 python server.py
+```
+
+### Testing
+
+```bash
 # Run tests
 python -m pytest tests/ -v
 

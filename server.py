@@ -96,8 +96,18 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._serve_file(filepath, self._guess_content_type(path))
             return
 
-        # Auth check for all other routes
-        if path != "/api/setup":
+        # Auth check — public read mode allows GET without token
+        # Public routes: root, /static/*, /api/setup (POST), GET /api/* (when public_read)
+        # Protected routes: POST/PATCH/DELETE /api/* (always need Bearer token)
+        needs_auth = True
+        if path == "/api/setup":
+            needs_auth = False
+        elif method == "GET" and path.startswith("/api/"):
+            cfg = get_config()
+            if cfg.get("auth", {}).get("public_read", True):
+                needs_auth = False
+
+        if needs_auth:
             api_key_hash = hash_key(get_or_create_api_key())
             if not check_auth(self.headers, api_key_hash):
                 self._json_response(

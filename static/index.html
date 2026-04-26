@@ -125,6 +125,9 @@ select{appearance:auto}
 .panel-sec .field-row>div{flex:1}
 .panel-sec select,.panel-sec input,.panel-sec textarea{font-size:13px}
 .panel-comments{border-top:1px solid var(--bd);padding:16px 20px;max-height:300px;overflow-y:auto}
+.panel-desc-readonly{font-size:13px;line-height:1.6;color:var(--t1)}
+.panel-desc-readonly pre{background:var(--bg3);padding:8px;border-radius:var(--rs);overflow-x:auto;margin:8px 0}
+.panel-desc-readonly code{background:var(--bg3);padding:1px 4px;border-radius:3px;font-size:12px}
 .comment{padding:8px 0;border-bottom:1px solid var(--bd)}
 .comment:last-child{border-bottom:none}
 .comment-author{font-weight:500;font-size:12px;color:var(--t1)}
@@ -252,10 +255,13 @@ select{appearance:auto}
   <div class="sb-search"><input id="global-search" placeholder="Search… ⌘K"></div>
   <div class="sb-sec">Projects</div>
   <div id="sb-projects"></div>
-  <a href="#" class="sb-add" id="add-proj-btn">+ New Project</a>
+  <div id="sb-add-proj"></div>
   <div class="sb-sec">System</div>
   <a href="#agents">🤖 Agents</a>
-  <div class="sb-foot"><span id="sb-ver">v0.1.0</span></div>
+  <div class="sb-foot">
+    <span id="sb-auth" style="cursor:pointer" onclick="showSetup()" title="Click to manage API key">🔓 Read-only</span>
+    <span id="sb-ver">v1.1.0</span>
+  </div>
 </nav>
 
 <main id="app"></main>
@@ -273,15 +279,36 @@ select{appearance:auto}
 // ── State ──
 let S={projects:[],currentSlug:null,poll:null,taskPanelOpen:false};
 
+// ── Auth helpers ──
+function isAuthenticated(){
+  return !!localStorage.getItem('ab_key');
+}
+
 // ── API ──
 async function api(m,p,b){
   const k=localStorage.getItem('ab_key');
-  if(!k){showSetup();return null}
-  const o={method:m,headers:{'Authorization':'Bearer '+k,'Content-Type':'application/json'}};
+  // GET requests work without auth (public read mode)
+  // POST/PATCH/DELETE require auth — prompt setup if no key
+  const isWrite=(m==='POST'||m==='PATCH'||m==='DELETE');
+  if(isWrite&&!k){
+    toast('Authentication required to modify data','err');
+    showSetup();
+    return null;
+  }
+  const o={method:m,headers:{'Content-Type':'application/json'}};
+  if(k)o.headers['Authorization']='Bearer '+k;
   if(b)o.body=JSON.stringify(b);
   try{
     const r=await fetch(p,o);
-    if(r.status===401){localStorage.removeItem('ab_key');showSetup();return null}
+    if(r.status===401){
+      if(k){
+        localStorage.removeItem('ab_key');
+        toast('API key invalid — cleared','err');
+        updateAuthBadge();
+      }
+      if(isWrite)showSetup();
+      return null;
+    }
     const d=await r.json();
     if(!r.ok){toast(d.error||'Request failed','err');return null}
     return d;
@@ -333,6 +360,41 @@ function openTaskPanel(task){
   S.taskPanelOpen=true;
   const p=document.getElementById('task-panel');
   const priorities={'critical':'#ef4444','high':'#f97316','medium':'#eab308','low':'#22c55e','none':'#6b7280'};
+  const authed=isAuthenticated();
+  let h=`<div class="panel-hdr"><div id="tp-title-text" style="flex:1;font-weight:600;font-size:15px">${esc(task.title)}</div><button class="btn-icon" onclick="closeTaskPanel()">✕</button></div>`;
+  h+=`<div class="panel-body">`;
+  h+=`<div class="panel-sec"><div class="field-row"><div><label>Status</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${task.status.replace('_',' ')}</div></div>`;
+  h+=`<div><label>Priority</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${task.priority||'none'}</div></div></div></div>`;
+  h+=`<div class="panel-sec"><div class="field-row"><div><label>Assignee</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${esc(task.assignee||'Unassigned')}</div></div>`;
+  h+=`<div><label>Due Date</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${task.due_date||'—'}</div></div></div></div>`;
+  h+=`<div class="panel-sec"><label>Tags</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${esc((task.tags||[]).join(', ')||'—')}</div></div>`;
+  h+=`<div class="panel-sec"><label>Description</label><div class="panel-desc-readonly">${md(task.description||'No description')}</div></div>`;
+  if(task.status==='proposed'&&authed){
+    h+=`<div style="display:flex;gap:8px"><button class="btn btn-ok" onclick="hitlAction('${task.id}','todo','approved')">✓ Approve</button><button class="btn btn-d" onclick="hitlAction('${task.id}','rejected','rejected')">✕ Reject</button></div>`;
+  }
+  if(task.status==='review'&&authed){
+    h+=`<div style="display:flex;gap:8px"><button class="btn btn-ok" onclick="hitlAction('${task.id}','done','approved')">✓ Approve</button><button class="btn btn-warn" onclick="hitlAction('${task.id}','in_progress','changes requested')">↩ Changes</button></div>`;
+  }
+  if(authed){
+    h+=`<button class="btn btn-s btn-sm" style="margin-top:8px" onclick="editTask('${task.id}')">✏️ Edit</button>`;
+  }
+  h+=`</div>`;
+  h+=`<div class="panel-comments"><div class="comment-add">${authed?'<input id="tp-comment" placeholder="Add comment…"><button class="btn btn-p btn-sm" onclick="addComment(\''+task.id+'\')">Send</button>':'<div style="font-size:12px;color:var(--t2);padding:8px 0">🔓 Authenticate to add comments</div>'}</div><div id="tp-comments"></div></div>`;
+  p.innerHTML=h;
+  document.getElementById('panel-bg').classList.add('open');
+  p.classList.add('open');
+  loadComments(task.id);
+}
+function editTask(id){
+  // Reload task data then show editable panel
+  api('GET','/api/tasks/'+id).then(data=>{
+    if(data)openTaskPanelEdit(data.task||data);
+  });
+}
+function openTaskPanelEdit(task){
+  S.taskPanelOpen=true;
+  const p=document.getElementById('task-panel');
+  const priorities={'critical':'#ef4444','high':'#f97316','medium':'#eab308','low':'#22c55e','none':'#6b7280'};
   const statuses=['proposed','todo','in_progress','review','done','rejected'];
   let h=`<div class="panel-hdr"><input id="tp-title" value="${esc(task.title)}"><button class="btn-icon" onclick="closeTaskPanel()">✕</button></div>`;
   h+=`<div class="panel-body">`;
@@ -342,19 +404,12 @@ function openTaskPanel(task){
   h+=`<div><label>Due Date</label><input id="tp-due" type="date" value="${task.due_date||''}"></div></div></div>`;
   h+=`<div class="panel-sec"><label>Tags</label><input id="tp-tags" value="${esc((task.tags||[]).join(', '))}"></div>`;
   h+=`<div class="panel-sec"><label>Description</label><textarea id="tp-desc" rows="6">${esc(task.description||'')}</textarea></div>`;
-  if(task.status==='proposed'){
-    h+=`<div style="display:flex;gap:8px"><button class="btn btn-ok" onclick="hitlAction('${task.id}','todo','approved')">✓ Approve</button><button class="btn btn-d" onclick="hitlAction('${task.id}','rejected','rejected')">✕ Reject</button></div>`;
-  }
-  if(task.status==='review'){
-    h+=`<div style="display:flex;gap:8px"><button class="btn btn-ok" onclick="hitlAction('${task.id}','done','approved')">✓ Approve</button><button class="btn btn-warn" onclick="hitlAction('${task.id}','in_progress','changes requested')">↩ Changes</button></div>`;
-  }
   h+=`</div>`;
   h+=`<div class="panel-comments"><div class="comment-add"><input id="tp-comment" placeholder="Add comment…"><button class="btn btn-p btn-sm" onclick="addComment('${task.id}')">Send</button></div><div id="tp-comments"></div></div>`;
   p.innerHTML=h;
   document.getElementById('panel-bg').classList.add('open');
   p.classList.add('open');
   loadComments(task.id);
-  // Auto-save on change
   p.querySelectorAll('#tp-title,#tp-status,#tp-priority,#tp-assignee,#tp-due,#tp-tags').forEach(el=>{
     el.addEventListener('change',()=>saveTask(task.id));
   });
@@ -410,11 +465,24 @@ async function doSetup(){
   if(!key){document.getElementById('s-err').textContent='API key required';return}
   localStorage.setItem('ab_key',key);
   toast('Connected!','ok');
+  updateAuthBadge();
   render();
+}
+function updateAuthBadge(){
+  const el=document.getElementById('sb-auth');
+  if(!el)return;
+  if(isAuthenticated()){
+    el.textContent='🔒 Authenticated';
+    el.title='Click to change API key';
+  }else{
+    el.textContent='🔓 Read-only';
+    el.title='Click to enter API key for write access';
+  }
 }
 
 // ── Sidebar ──
 async function loadSidebar(){
+  updateAuthBadge();
   const data=await api('GET','/api/projects');
   if(!data)return;
   S.projects=data.projects||[];
@@ -423,6 +491,16 @@ async function loadSidebar(){
     const active=location.hash===`#project/${p.slug}/board`||location.hash===`#project/${p.slug}/docs`||location.hash===`#project/${p.slug}/settings`;
     return`<a href="#project/${p.slug}/board" class="${active?'active':''}"><span class="sb-proj-icon">${p.icon||'📋'}</span>${esc(p.name)}<span class="sb-count">${p.task_count||0}</span></a>`;
   }).join('');
+  const addProj=document.getElementById('sb-add-proj');
+  addProj.innerHTML=isAuthenticated()?'<a href="#" class="sb-add" id="add-proj-btn">+ New Project</a>':'';
+  addProj.querySelector('#add-proj-btn')?.addEventListener('click',e=>{
+    e.preventDefault();
+    openModal(`<h3>New Project</h3>
+    <div class="form-group"><label>Name</label><input id="np-name" placeholder="Project name"></div>
+    <div class="form-group"><label>Description</label><textarea id="np-desc" rows="2" placeholder="What is this project about?"></textarea></div>
+    <div class="form-group"><div class="field-row"><div><label>Icon</label><input class="icon-inp" id="np-icon" value="📋"></div><div><label>Color</label><input class="color-inp" id="np-color" type="color" value="#3b82f6"></div></div></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="createProject()">Create</button></div>`);
+  });
 }
 
 // ── Router ──
@@ -443,7 +521,6 @@ async function render(){
   closeTaskPanel();
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-overlay').classList.remove('open');
-  if(!localStorage.getItem('ab_key')){showSetup();return}
   switch(view){
     case'overview':await renderOverview(app);break;
     case'board':await renderBoard(app,slug);break;
@@ -497,8 +574,8 @@ async function renderOverview(app){
         <div class="attn-dot" style="background:${color}"></div>
         <div class="attn-info"><div class="title">${esc(t.title)}</div><div class="sub">${esc(t.project_name||'')} · ${label}</div></div>
         <div class="attn-actions">
-          ${t.status==='proposed'?`<button class="btn btn-ok btn-sm" onclick="event.stopPropagation();quickHitl('${t.id}','todo')">✓</button>`:''}
-          ${t.status==='review'?`<button class="btn btn-ok btn-sm" onclick="event.stopPropagation();quickHitl('${t.id}','done')">✓</button>`:''}
+          ${isAuthenticated()&&t.status==='proposed'?`<button class="btn btn-ok btn-sm" onclick="event.stopPropagation();quickHitl('${t.id}','todo')">✓</button>`:''}
+          ${isAuthenticated()&&t.status==='review'?`<button class="btn btn-ok btn-sm" onclick="event.stopPropagation();quickHitl('${t.id}','done')">✓</button>`:''}
         </div>
       </div>`;
     });
@@ -543,7 +620,7 @@ async function renderBoard(app,slug){
     <div class="kb-filters">
       <select id="kb-filter-assignee" onchange="render()"><option value="">All assignees</option></select>
       <select id="kb-filter-priority" onchange="render()"><option value="">All priorities</option>${Object.keys(priorities).map(k=>`<option value="${k}">${k}</option>`).join('')}</select>
-      <button class="btn btn-p btn-sm" onclick="showNewTask('${slug}')">+ New Task</button>
+      ${isAuthenticated()?`<button class="btn btn-p btn-sm" onclick="showNewTask('${slug}')">+ New Task</button>`:''}
     </div>
     <a href="#project/${slug}/docs" class="btn btn-s btn-sm">📄 Docs</a>
     <a href="#project/${slug}/settings" class="btn btn-s btn-sm">⚙️ Settings</a>
@@ -573,7 +650,7 @@ async function renderBoard(app,slug){
 
 // Drag and drop
 let dragId=null;
-function onDragStart(e){dragId=e.target.dataset.id;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move'}
+function onDragStart(e){if(!isAuthenticated())return;dragId=e.target.dataset.id;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move'}
 function onDragOver(e){e.preventDefault();e.currentTarget.classList.add('drag-over')}
 function onDragLeave(e){e.currentTarget.classList.remove('drag-over')}
 async function onDrop(e,status,slug){
@@ -635,8 +712,8 @@ async function renderDocs(app,slug){
         <span class="page-icon">📄</span>
         <span class="page-title">${esc(p.title)}</span>
         <span class="page-acts">
-          <button class="btn-icon" style="font-size:12px" onclick="event.stopPropagation();addChildPage('${p.id}','${slug}')">+</button>
-          <button class="btn-icon" style="font-size:12px" onclick="event.stopPropagation();deletePage('${p.id}','${slug}')">🗑</button>
+          ${isAuthenticated()?`<button class="btn-icon" style="font-size:12px" onclick="event.stopPropagation();addChildPage('${p.id}','${slug}')">+</button>
+          <button class="btn-icon" style="font-size:12px" onclick="event.stopPropagation();deletePage('${p.id}','${slug}')">🗑</button>`:''}
         </span>
       </div>`;
       if(hasKids&&expanded)h+=treeHtml(kids,depth+1);
@@ -647,17 +724,17 @@ async function renderDocs(app,slug){
   let h=`<div class="docs-layout">
     <div class="docs-tree">
       <div class="docs-tree-hdr"><h3>${project.icon||'📋'} ${esc(project.name)}</h3>
-        <button class="btn btn-p btn-sm" onclick="addRootPage('${slug}')">+ Page</button>
+        ${isAuthenticated()?`<button class="btn btn-p btn-sm" onclick="addRootPage('${slug}')">+ Page</button>`:''}
       </div>
       ${treeHtmlStr||'<div class="empty" style="padding:24px"><div class="empty-icon">📄</div><h3>No pages</h3></div>'}
     </div>
     <div class="docs-editor" id="docs-editor">
       <div class="docs-editor-hdr">
-        <input id="de-title" placeholder="Page title" onblur="savePage()">
-        <button class="btn btn-s btn-sm" onclick="savePage()">Save</button>
+        <input id="de-title" placeholder="Page title" ${isAuthenticated()?'onblur="savePage()"':'disabled style="opacity:.6"'}>
+        ${isAuthenticated()?'<button class="btn btn-s btn-sm" onclick="savePage()">Save</button>':''}
       </div>
       <div class="docs-editor-body">
-        <div class="docs-md"><textarea id="de-content" placeholder="Write markdown…" oninput="updatePreview()"></textarea></div>
+        <div class="docs-md"><textarea id="de-content" placeholder="Write markdown…" ${isAuthenticated()?'oninput="updatePreview()"':'disabled style="opacity:.6"'}></textarea></div>
         <div class="docs-preview" id="de-preview"></div>
       </div>
     </div>
@@ -761,7 +838,7 @@ async function archiveProject(slug){
 async function renderAgents(app){
   const data=await api('GET','/api/agents');
   const agents=data?.agents||[];
-  let h=`<div style="padding:24px 24px 0;display:flex;justify-content:space-between;align-items:center"><h2 style="font-size:18px;font-weight:600">🤖 Agents</h2><button class="btn btn-p btn-sm" onclick="showNewAgent()">+ Register Agent</button></div>`;
+  let h=`<div style="padding:24px 24px 0;display:flex;justify-content:space-between;align-items:center"><h2 style="font-size:18px;font-weight:600">🤖 Agents</h2>${isAuthenticated()?'<button class="btn btn-p btn-sm" onclick="showNewAgent()">+ Register Agent</button>':''}</div>`;
   h+=`<div class="agents-grid">`;
   if(!agents.length)h+=`<div class="empty" style="grid-column:1/-1"><div class="empty-icon">🤖</div><h3>No agents registered</h3><p>Register an agent to start assigning tasks</p></div>`;
   agents.forEach(a=>{
@@ -809,6 +886,7 @@ async function createAgent(){
 // ── Helpers ──
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function fmtTime(t){if(!t)return'';const d=new Date(t+'Z');const now=new Date();const diff=Math.floor((now-d)/1000);if(diff<60)return'just now';if(diff<3600)return Math.floor(diff/60)+'m ago';if(diff<86400)return Math.floor(diff/3600)+'h ago';return t.slice(0,10)}
+function writeBtn(html){return isAuthenticated()?html:''}
 
 // ── Init ──
 window.addEventListener('hashchange',render);
@@ -822,7 +900,8 @@ document.getElementById('sidebar-overlay').addEventListener('click',()=>{
 });
 document.getElementById('panel-bg').addEventListener('click',closeTaskPanel);
 document.getElementById('modal-bg').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal()});
-document.getElementById('add-proj-btn').addEventListener('click',e=>{
+const addProjBtn=document.getElementById('add-proj-btn');
+if(addProjBtn)addProjBtn.addEventListener('click',e=>{
   e.preventDefault();
   openModal(`<h3>New Project</h3>
     <div class="form-group"><label>Name</label><input id="np-name" placeholder="Project name"></div>

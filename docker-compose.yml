@@ -1,9 +1,10 @@
 # ── AgentBoard Docker Compose ───────────────────────────────
 #
 # Production deployment pattern:
-#   1. Clone repo to /opt/data/agentboard
-#   2. Copy .env.example → .env, set AGENTBOARD_API_KEY
-#   3. docker compose up -d
+#   1. Clone repo: git clone --branch main https://github.com/ajianaz/agentboard.git
+#   2. Copy .env.example → .env, set AGENTBOARD_API_KEY (or auto-generate)
+#   3. Uncomment Traefik labels below and set env vars
+#   4. docker compose up -d
 #
 # All data (DB, API key, config) lives in /opt/data/agentboard
 # via bind mount. Survives container restart/recreate.
@@ -24,12 +25,12 @@ services:
     # Bind mount: host directory → container WORKDIR
     # Host:  /opt/data/agentboard (where this docker-compose.yml lives)
     # Guest: /opt/data/agentboard (Dockerfile WORKDIR)
-    # All runtime data (DB, .api_key, agentboard.toml) persists here.
+    # All runtime data (.db, .api_key, .env) persists here.
     volumes:
       - .:/opt/data/agentboard
 
     ports:
-      - "8765:8765"
+      - "${AGENTBOARD_PORT:-8765}:8765"
 
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/')"]
@@ -38,12 +39,27 @@ services:
       retries: 3
       start_period: 5s
 
-    # ── Traefik reverse proxy (uncomment for public deployment) ──
-    # networks:
-    #   - public-net
+    # ── Traefik reverse proxy ──────────────────────────────────
+    # Uncomment the labels and networks below to enable public access.
+    # Set AGENTBOARD_DOMAIN, TRAEFIK_NETWORK, and TRAEFIK_CERT_RESOLVER
+    # in your .env file (or use the defaults shown).
+    #
     # labels:
     #   - "traefik.enable=true"
-    #   - "traefik.http.routers.agentboard.rule=Host(`board.example.com`)"
+    #   - "traefik.http.routers.agentboard.rule=Host(`${AGENTBOARD_DOMAIN:-board.example.com}`)"
     #   - "traefik.http.routers.agentboard.entrypoints=websecure"
-    #   - "traefik.http.routers.agentboard.tls.certresolver=myresolver"
+    #   - "traefik.http.routers.agentboard.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
     #   - "traefik.http.services.agentboard.loadbalancer.server.port=8765"
+    #
+    # networks:
+    #   - ${TRAEFIK_NETWORK:-public-net}
+
+# Uncomment to connect to an external Traefik network
+# NOTE: If you set TRAEFIK_NETWORK in .env to a custom name, update the
+# top-level network name below to match. Service-level references use
+# ${TRAEFIK_NETWORK:-public-net}, so the top-level block must declare
+# the SAME name (not a hardcoded one).
+#
+# networks:
+#   public-net:        # ← must match TRAEFIK_NETWORK value
+#     external: true

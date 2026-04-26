@@ -39,10 +39,24 @@ DEFAULTS = {
     },
     "auth": {
         "api_key_file": ".api_key",
+        "public_read": True,
     },
     "features": {
         "export_enabled": True,
         "import_enabled": True,
+    },
+    "webhooks": {
+        "enabled": False,
+        "timeout": 5,
+        "agent_ports": {
+            "cto": 8647,
+            "zeko": 8648,
+            "cfo": 8645,
+            "kai": 8650,
+            "sosmed": 8651,
+            "badsector": 8652,
+            "nova": 8649,
+        },
     },
 }
 
@@ -146,6 +160,8 @@ def load_config(cli_args: list | None = None) -> dict:
         config["database"]["path"] = os.environ["AGENTBOARD_DB_PATH"]
     if os.environ.get("AGENTBOARD_API_KEY_FILE"):
         config["auth"]["api_key_file"] = os.environ["AGENTBOARD_API_KEY_FILE"]
+    if os.environ.get("AGENTBOARD_PUBLIC_READ"):
+        config["auth"]["public_read"] = os.environ["AGENTBOARD_PUBLIC_READ"].lower() in ("true", "1", "yes")
 
     # 5. CLI argument overrides (highest priority)
     if parsed.port is not None:
