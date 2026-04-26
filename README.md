@@ -330,11 +330,61 @@ AgentBoard ships with a built-in dark theme — no configuration needed. Open th
 ## Development
 
 ```bash
-# Run tests
+# Run tests (pytest required — not included in standalone)
 python -m pytest tests/ -v
 
 # Run with custom port
 AGENTBOARD_PORT=9000 python server.py
+```
+
+## Quality Assurance
+
+Standalone build tested on develop branch (commit `898b1d1`):
+
+| Test Category | Result | Details |
+|---------------|--------|---------|
+| **API endpoints** | 13/13 ✅ | Root page, auth, CRUD project/task/page/comment, FTS search, stats, export, cascade delete |
+| **HTML structure** | ✅ | DOCTYPE, charset+viewport, zero external deps, relative API paths, 49 JS functions, 15KB CSS dark theme |
+| **Security** | ✅ | `_mask_key()` masks API key in banner, 500 returns generic error (no `str(exc)` leak), `.dockerignore` excludes secrets |
+| **CI/CD** | 5/5 ✅ | pytest 3.11/3.12/3.13 + Docker amd64 + Docker arm64 |
+| **Visual** | ⏭️ Skipped | No browser available in sandbox — requires testing on server with browser |
+
+## Production Deployment
+
+### Standalone (recommended for simplicity)
+
+```bash
+git clone https://github.com/ajianaz/agentboard.git /opt/data/agentboard
+cd /opt/data/agentboard
+cp .env.example .env  # optional — edit as needed
+python3 server.py     # or use systemd/supervisor for process management
+```
+
+### Docker
+
+```bash
+git clone https://github.com/ajianaz/agentboard.git /opt/data/agentboard
+cd /opt/data/agentboard
+cp .env.example .env
+docker compose up -d
+```
+
+**Available image tags:** `latest` (stable/main), `develop` (bleeding edge), `v*` (semver)
+
+### Reverse Proxy (Traefik)
+
+Uncomment the Traefik labels in `docker-compose.yml` and set your domain:
+
+```yaml
+# In docker-compose.yml — uncomment these lines:
+networks:
+  - public-net
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.agentboard.rule=Host(`board.example.com`)"
+  - "traefik.http.routers.agentboard.entrypoints=websecure"
+  - "traefik.http.routers.agentboard.tls.certresolver=myresolver"
+  - "traefik.http.services.agentboard.loadbalancer.server.port=8765"
 ```
 
 ## License

@@ -89,9 +89,18 @@ agentboard/
 │   └── export.py          # Export/import endpoints
 ├── static/
 │   └── index.html         # Single-page application (all UI)
-├── agentboard.db          # SQLite database (auto-created)
+├── tests/
+│   ├── conftest.py        # Shared pytest fixtures (db_conn, api_key)
+│   ├── test_db.py         # Schema, tables, FTS5, gen_id, slugify (7 tests)
+│   └── test_auth.py       # Key gen, hashing, validation, header parsing (10 tests)
+├── agentboard.db          # SQLite database (auto-created, gitignored)
 ├── agentboard.toml        # Optional config (all defaults work)
-├── .api_key               # Auto-generated API key (first run)
+├── .api_key               # Auto-generated API key (first run, gitignored)
+├── .env                   # Production env vars (NOT committed, gitignored)
+├── .env.example           # Template for .env
+├── Dockerfile             # Docker image definition
+├── docker-compose.yml     # Docker deployment (bind mount, env_file)
+├── .dockerignore          # Docker build exclusions
 ├── AGENTS.md              # THIS FILE
 ├── README.md
 ├── LICENSE                # Apache 2.0
@@ -99,19 +108,84 @@ agentboard/
 ├── CONTRIBUTING.md
 ├── docs/
 │   └── plans/             # Implementation plans
-├── .github/
-│   ├── ISSUE_TEMPLATE/
-│   │   ├── bug_report.md
-│   │   └── feature_request.md
-│   ├── PULL_REQUEST_TEMPLATE.md
-│   └── workflows/
-│       └── ci.yml
-└── tests/
-    ├── test_db.py
-    ├── test_api_projects.py
-    ├── test_api_tasks.py
-    ├── test_api_pages.py
-    └── test_auth.py
+└── .github/
+    ├── ISSUE_TEMPLATE/
+    │   ├── bug_report.md
+    │   └── feature_request.md
+    ├── PULL_REQUEST_TEMPLATE.md
+    └── workflows/
+        ├── ci.yml                # pytest matrix (3.11, 3.12, 3.13)
+        └── docker-publish.yml    # Multi-arch build → ghcr.io
+```
+
+## Docker Deployment
+
+AgentBoard supports Docker as an **optional** deployment method. Standalone (`python server.py`) is always the primary approach.
+
+### Production Setup
+
+```bash
+# 1. Clone to deployment directory
+git clone https://github.com/ajianaz/agentboard.git /opt/data/agentboard
+cd /opt/data/agentboard
+
+# 2. Create env file
+cp .env.example .env
+# Edit .env — set AGENTBOARD_API_KEY (or leave empty for auto-gen)
+
+# 3. Start
+docker compose up -d
+```
+
+### Key Docker Details
+
+| Aspect | Detail |
+|--------|--------|
+| **Image** | `ghcr.io/ajianaz/agentboard:latest` (main) or `:develop` (dev) |
+| **WORKDIR** | `/opt/data/agentboard` |
+| **Data persistence** | Bind mount `.:/opt/data/agentboard` — DB, API key, config survive restarts |
+| **Healthcheck** | `python3 -c "import urllib.request; ..."` (zero-dep, no curl needed) |
+| **Env config** | `env_file: ./.env` — all vars optional, see `.env.example` |
+| **Reverse proxy** | Traefik labels commented in docker-compose.yml — uncomment for public deployment |
+| **Multi-arch** | amd64 + arm64 native builds (no QEMU emulation) |
+
+### Bind Mount Pattern
+
+The bind mount `.:/opt/data/agentboard` maps the host directory 1:1 to the container WORKDIR:
+
+```
+Host (/opt/data/agentboard/)     Container (/opt/data/agentboard/)
+├── .env                         ├── .env          ← env vars
+├── agentboard.db                ├── agentboard.db ← SQLite data
+├── .api_key                     ├── .api_key      ← auth key
+└── agentboard.toml              └── agentboard.toml ← optional config
+```
+
+This means all runtime data is on the host filesystem — no Docker volumes needed.
+
+### Docker Compose (excerpt)
+
+```yaml
+services:
+  agentboard:
+    image: ghcr.io/ajianaz/agentboard:latest
+    env_file: ./.env
+    volumes:
+      - .:/opt/data/agentboard
+    ports:
+      - "8765:8765"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # Uncomment for Traefik reverse proxy:
+    # networks:
+    #   - public-net
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.agentboard.rule=Host(`board.example.com`)"
+    #   - "traefik.http.services.agentboard.loadbalancer.server.port=8765"
 ```
 
 ## Database Schema
@@ -640,6 +714,9 @@ python server.py -p 9000 -c prod.toml  # Short flags
 | `AGENTBOARD_HOST` | Bind address | `0.0.0.0` |
 | `AGENTBOARD_CONFIG` | Path to `agentboard.toml` | auto-detected |
 | `AGENTBOARD_API_KEY` | API key (overrides `.api_key` file) | auto-generated |
+| `AGENTBOARD_API_KEY_FILE` | API key file path | `.api_key` |
+| `AGENTBOARD_DB_PATH` | Database file path | `agentboard.db` |
+| `TZ` | Timezone for timestamps | `UTC` |
 
 ### Config Access in Code
 
