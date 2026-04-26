@@ -92,13 +92,39 @@ On first run, AgentBoard auto-generates a cryptographically random API key and:
 1. **Prints it to the console** so you can copy it immediately
 2. **Saves it to `.api_key`** in the project root for persistence
 
-All API requests require the key in the `Authorization` header:
+### Public Read-Only Mode
+
+By default (`auth.public_read = true`), all **GET endpoints are accessible without authentication**. This means anyone can browse the board — view projects, tasks, agents, and search.
+
+**Write operations** (POST, PATCH, DELETE) always require the API key:
 
 ```
-Authorization: Bearer ***
+Authorization: Bearer *** 
 ```
 
-You can override it with the `AGENTBOARD_API_KEY` environment variable, or set a custom key file path in `agentboard.toml`.
+To disable public read and require auth for **all** endpoints:
+
+```bash
+# Environment variable
+AGENTBOARD_PUBLIC_READ=false
+
+# Or in agentboard.toml
+[auth]
+public_read = false
+```
+
+You can override the API key with the `AGENTBOARD_API_KEY` environment variable, or set a custom key file path in `agentboard.toml`.
+
+### Auth Summary
+
+| Request Type | Auth Required | Behavior |
+|-------------|--------------|----------|
+| `GET /api/*` | ❌ No (when `public_read=true`) | Browse freely |
+| `POST /api/*` | ✅ Yes | Create resources |
+| `PATCH /api/*` | ✅ Yes | Update resources |
+| `DELETE /api/*` | ✅ Yes | Delete resources |
+| `POST /api/setup` | ❌ No | First-run setup (always public) |
+| Static files + `/` | ❌ No | SPA served always |
 
 ## API Overview
 
@@ -116,22 +142,18 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 | DELETE | `/api/projects/{slug}` | Archive project |
 | POST | `/api/projects/{slug}/restore` | Unarchive project |
 
-### Tasks (6 endpoints)
+### Tasks (8 endpoints)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/projects/{slug}/tasks` | Tasks in project |
 | GET | `/api/projects/{slug}/tasks?status=review&assignee=cto` | Filter by status/assignee |
 | POST | `/api/projects/{slug}/tasks` | Create task |
+| GET | `/api/tasks/{id}` | Get single task |
 | PATCH | `/api/tasks/{id}` | Update task |
 | DELETE | `/api/tasks/{id}` | Delete task |
-| GET | `/api/tasks/{id}` | Get single task |
-
-### Cross-Project Tasks (1 endpoint)
-
-| Method | Path | Description |
-|--------|------|-------------|
 | GET | `/api/tasks?project=all&assignee=agent-id` | Cross-project task query |
+| GET | `/api/tasks/{id}/children` | List subtasks |
 
 ### Pages (5 endpoints)
 
@@ -190,7 +212,7 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 
 **Note:** `/api/setup` is a one-time endpoint — it can only be called once after the database is created. To add additional projects afterward, use `POST /api/projects`.
 
-**Total: 31 endpoints**
+**Total: 34 endpoints**
 
 ## Agent Integration
 
@@ -290,6 +312,7 @@ path = "agentboard.db"
 
 [auth]
 api_key_file = ".api_key"
+public_read = true
 
 [features]
 export_enabled = true
@@ -318,6 +341,7 @@ Environment variables override `agentboard.toml` values:
 | `AGENTBOARD_API_KEY` | API key (overrides `.api_key` file) | auto-generated |
 | `AGENTBOARD_API_KEY_FILE` | API key file path | `.api_key` |
 | `AGENTBOARD_DB_PATH` | Database file path | `agentboard.db` |
+| `AGENTBOARD_PUBLIC_READ` | Public read-only GET access | `true` |
 
 ### Config is optional
 

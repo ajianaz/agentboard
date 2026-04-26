@@ -19,7 +19,8 @@ description: AgentBoard — standalone multi-project task board for agent fleet 
 | **Onboard** | `python3 onboard.py --yes` → registers agents + projects |
 | **API Base** | `http://127.0.0.1:8765/api` |
 | **Dashboard** | `http://127.0.0.1:8765` |
-| **Auth** | `Authorization: Bearer <key from .api_key>` |
+| **Auth** | GET = public (default), POST/PATCH/DELETE = `Bearer *** from .api_key>` |
+| **Public Read** | `auth.public_read=true` default — toggle via env `AGENTBOARD_PUBLIC_READ` |
 | **Tech** | Python 3.11+ stdlib, SQLite WAL, vanilla HTML/CSS/JS |
 
 ## Files
@@ -29,7 +30,7 @@ description: AgentBoard — standalone multi-project task board for agent fleet 
 | `AGENTS.md` | **Single source of truth** — full API reference, schema, conventions |
 | `onboard.py` | Fleet onboard script — registers agents, creates starter projects |
 | `skills/agentboard/SKILL.md` | This file — quick reference hub |
-| `skills/agentboard/references/api_reference.md` | All 31+ endpoints with examples |
+| `skills/agentboard/references/api_reference.md` | All 34+ endpoints with auth table |
 | `skills/agentboard/references/client.py` | **Python client wrapper** — `from client import Board` |
 | `skills/agentboard/references/workflows.md` | Common agent workflows (7 patterns) |
 | `skills/agentboard/references/pitfalls.md` | Gotchas, edge cases, troubleshooting (14 items) |

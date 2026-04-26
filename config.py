@@ -39,6 +39,7 @@ DEFAULTS = {
     },
     "auth": {
         "api_key_file": ".api_key",
+        "public_read": True,
     },
     "features": {
         "export_enabled": True,
@@ -159,6 +160,8 @@ def load_config(cli_args: list | None = None) -> dict:
         config["database"]["path"] = os.environ["AGENTBOARD_DB_PATH"]
     if os.environ.get("AGENTBOARD_API_KEY_FILE"):
         config["auth"]["api_key_file"] = os.environ["AGENTBOARD_API_KEY_FILE"]
+    if os.environ.get("AGENTBOARD_PUBLIC_READ"):
+        config["auth"]["public_read"] = os.environ["AGENTBOARD_PUBLIC_READ"].lower() in ("true", "1", "yes")
 
     # 5. CLI argument overrides (highest priority)
     if parsed.port is not None:
