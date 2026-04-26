@@ -738,8 +738,9 @@ python server.py --dev
 # Run tests
 python -m pytest tests/ -v
 
-# Run single test
-python -m pytest tests/test_api_tasks.py -v
+# Run single test file
+python -m pytest tests/test_db.py -v
+python -m pytest tests/test_auth.py -v
 ```
 
 ## Conventions
