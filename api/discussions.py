@@ -1,0 +1,387 @@
+"""api/discussions.py - Discussion and review system endpoints.
+
+Multi-participant discussion/review system for AgentBoard. Allows agents or team
+members to review proposals/tasks with structured feedback across multiple rounds.
+
+Endpoints:
+    GET    /api/discussions              — list all discussions
+    GET    /api/discussions/{id}         — get discussion with all feedback
+    POST   /api/discussions              — create new discussion
+    PATCH  /api/discussions/{id}         — update discussion (status, round)
+    DELETE /api/discussions/{id}         — delete discussion
+    POST   /api/discussions/{id}/feedback — add feedback for a round
+    GET    /api/discussions/{id}/summary  — aggregated verdict summary
+"""
+
+import json
+from db import get_db, gen_id
+from activity_logger import log_activity_event, get_actor_from_headers
+from api import router
+
+
+def _discussion_row_to_dict(row) -> dict:
+    """Convert a discussion Row to a plain dict."""
+    return dict(row)
+
+
+def _feedback_row_to_dict(row) -> dict:
+    """Convert a feedback Row to a plain dict."""
+    d = dict(row)
+    # Parse content if needed
+    raw = d.get("content")
+    if isinstance(raw, str):
+        try:
+            d["content"] = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return d
+
+
+@router.get("/api/discussions")
+def list_discussions(params, query, body, headers):
+    """List discussions, optionally filtered.
+
+    Query params:
+        target_type — filter by target type (task, page, project)
+        target_id   — filter by target ID
+        status      — filter by status (open, closed, consensus)
+        limit       — max rows (default 50, max 200)
+        offset      — skip N rows (default 0)
+    """
+    try:
+        limit = min(int(query.get("limit", ["50"])[0]), 200)
+    except (ValueError, IndexError):
+        limit = 50
+    try:
+        offset = max(int(query.get("offset", ["0"])[0]), 0)
+    except (ValueError, IndexError):
+        offset = 0
+
+    target_type = query.get("target_type", [None])[0]
+    target_id = query.get("target_id", [None])[0]
+    status = query.get("status", [None])[0]
+
+    conditions = []
+    sql_params = []
+
+    if target_type:
+        conditions.append("d.target_type = ?")
+        sql_params.append(target_type)
+    if target_id:
+        conditions.append("d.target_id = ?")
+        sql_params.append(target_id)
+    if status:
+        conditions.append("d.status = ?")
+        sql_params.append(status)
+
+    where = ""
+    if conditions:
+        where = "WHERE " + " AND ".join(conditions)
+
+    conn = get_db()
+    rows = conn.execute(
+        f"""SELECT d.*, 
+                   (SELECT COUNT(*) FROM discussion_feedback df WHERE df.discussion_id = d.id) as feedback_count
+            FROM discussions d
+            {where}
+            ORDER BY d.updated_at DESC
+            LIMIT ? OFFSET ?""",
+        (*sql_params, limit, offset),
+    ).fetchall()
+
+    count_row = conn.execute(
+        f"SELECT COUNT(*) as cnt FROM discussions d {where}",
+        (*sql_params,),
+    ).fetchone()
+
+    discussions = [_discussion_row_to_dict(r) for r in rows]
+    conn.close()
+
+    return 200, {
+        "discussions": discussions,
+        "total": count_row["cnt"],
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/api/discussions/{id}")
+def get_discussion(params, query, body, headers):
+    """Get a single discussion with all feedback ordered by round."""
+    discussion_id = params["id"]
+    conn = get_db()
+
+    row = conn.execute(
+        "SELECT * FROM discussions WHERE id = ?", (discussion_id,)
+    ).fetchone()
+
+    if not row:
+        conn.close()
+        return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
+
+    # Get all feedback ordered by round, then participant
+    feedback_rows = conn.execute(
+        """SELECT * FROM discussion_feedback
+           WHERE discussion_id = ?
+           ORDER BY round ASC, participant ASC""",
+        (discussion_id,),
+    ).fetchall()
+
+    discussion = _discussion_row_to_dict(row)
+    discussion["feedback"] = [_feedback_row_to_dict(r) for r in feedback_rows]
+    conn.close()
+
+    return 200, discussion
+
+
+@router.post("/api/discussions")
+def create_discussion(params, query, body, headers):
+    """Create a new discussion.
+
+    Body:
+        title        — discussion title (required)
+        target_type  — optional (task, page, project)
+        target_id    — optional
+        max_rounds   — optional (default 5)
+        created_by   — optional (auto-detected from X-Actor header)
+    """
+    data = json.loads(body) if body else {}
+    title = data.get("title", "").strip()
+    if not title:
+        return 400, {"error": "Title is required", "code": "VALIDATION_ERROR"}
+
+    conn = get_db()
+    discussion_id = gen_id()
+    actor = data.get("created_by") or get_actor_from_headers(headers)
+    max_rounds = min(int(data.get("max_rounds", 5)), 20)
+
+    conn.execute(
+        """INSERT INTO discussions (id, title, target_type, target_id, status, current_round, max_rounds, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'open', 1, ?, ?, datetime('now'), datetime('now'))""",
+        (discussion_id, title, data.get("target_type", ""), data.get("target_id", ""),
+         max_rounds, actor),
+    )
+    conn.commit()
+
+    row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
+    conn.close()
+
+    log_activity_event("discussion", discussion_id, "create", actor,
+                       {"title": title, "target_type": data.get("target_type", "")})
+
+    return 201, _discussion_row_to_dict(row)
+
+
+@router.patch("/api/discussions/{id}")
+def update_discussion(params, query, body, headers):
+    """Update a discussion.
+
+    Body (any combination):
+        title   — new title
+        status  — open, closed, consensus
+        current_round — advance to next round
+    """
+    data = json.loads(body) if body else {}
+    discussion_id = params["id"]
+    actor = get_actor_from_headers(headers)
+
+    conn = get_db()
+    row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
+    if not row:
+        conn.close()
+        return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
+
+    updates = []
+    update_params = []
+
+    if "title" in data and data["title"].strip():
+        updates.append("title = ?")
+        update_params.append(data["title"].strip())
+    if "status" in data and data["status"] in ("open", "closed", "consensus"):
+        updates.append("status = ?")
+        update_params.append(data["status"])
+    if "current_round" in data:
+        updates.append("current_round = ?")
+        update_params.append(min(int(data["current_round"]), row["max_rounds"]))
+
+    if updates:
+        updates.append("updated_at = datetime('now')")
+        conn.execute(
+            f"UPDATE discussions SET {', '.join(updates)} WHERE id = ?",
+            (*update_params, discussion_id),
+        )
+        conn.commit()
+
+    row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
+    conn.close()
+
+    log_activity_event("discussion", discussion_id, "update", actor, data)
+    return 200, _discussion_row_to_dict(row)
+
+
+@router.delete("/api/discussions/{id}")
+def delete_discussion(params, query, body, headers):
+    """Delete a discussion and all its feedback."""
+    discussion_id = params["id"]
+    actor = get_actor_from_headers(headers)
+
+    conn = get_db()
+    row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
+    if not row:
+        conn.close()
+        return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
+
+    conn.execute("DELETE FROM discussion_feedback WHERE discussion_id = ?", (discussion_id,))
+    conn.execute("DELETE FROM discussions WHERE id = ?", (discussion_id,))
+    conn.commit()
+    conn.close()
+
+    log_activity_event("discussion", discussion_id, "delete", actor)
+    return 200, {"deleted": True}
+
+
+@router.post("/api/discussions/{id}/feedback")
+def add_feedback(params, query, body, headers):
+    """Add feedback for a discussion round.
+
+    Body:
+        participant — participant name/ID (required)
+        role        — optional role description
+        verdict     — approve, conditional, reject, or empty
+        content     — feedback text (required)
+        round       — optional round number (defaults to current_round)
+    """
+    data = json.loads(body) if body else {}
+    discussion_id = params["id"]
+    participant = data.get("participant", "").strip()
+    content = data.get("content", "").strip()
+
+    if not participant:
+        return 400, {"error": "Participant is required", "code": "VALIDATION_ERROR"}
+    if not content:
+        return 400, {"error": "Content is required", "code": "VALIDATION_ERROR"}
+
+    verdict = data.get("verdict", "").strip().lower()
+    if verdict not in ("approve", "conditional", "reject", ""):
+        return 400, {"error": "Invalid verdict. Use: approve, conditional, reject", "code": "VALIDATION_ERROR"}
+
+    conn = get_db()
+    row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
+    if not row:
+        conn.close()
+        return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
+
+    # Use specified round or default to current round
+    round_num = int(data.get("round", row["current_round"]))
+    round_num = min(round_num, row["max_rounds"])
+
+    # Check if participant already submitted for this round
+    existing = conn.execute(
+        """SELECT id FROM discussion_feedback
+           WHERE discussion_id = ? AND round = ? AND participant = ?""",
+        (discussion_id, round_num, participant),
+    ).fetchone()
+
+    if existing:
+        # Update existing feedback
+        conn.execute(
+            """UPDATE discussion_feedback SET verdict = ?, content = ?, word_count = ?, created_at = datetime('now')
+               WHERE id = ?""",
+            (verdict, content, len(content.split()), existing["id"]),
+        )
+    else:
+        # Insert new feedback
+        feedback_id = gen_id()
+        conn.execute(
+            """INSERT INTO discussion_feedback (id, discussion_id, round, participant, role, verdict, content, word_count, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (feedback_id, discussion_id, round_num, participant,
+             data.get("role", ""), verdict, content, len(content.split())),
+        )
+
+    # Update discussion's updated_at
+    conn.execute(
+        "UPDATE discussions SET updated_at = datetime('now') WHERE id = ?",
+        (discussion_id,),
+    )
+    conn.commit()
+
+    # Fetch updated feedback
+    fb_row = conn.execute(
+        """SELECT * FROM discussion_feedback
+           WHERE discussion_id = ? AND round = ? AND participant = ?""",
+        (discussion_id, round_num, participant),
+    ).fetchone()
+    conn.close()
+
+    return 201, _feedback_row_to_dict(fb_row)
+
+
+@router.get("/api/discussions/{id}/summary")
+def get_discussion_summary(params, query, body, headers):
+    """Get aggregated verdict summary for a discussion.
+
+    Returns per-round verdict counts and final consensus status.
+    """
+    discussion_id = params["id"]
+    conn = get_db()
+
+    row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
+    if not row:
+        conn.close()
+        return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
+
+    # Get all feedback grouped by round
+    feedback_rows = conn.execute(
+        """SELECT round, participant, role, verdict, word_count
+           FROM discussion_feedback
+           WHERE discussion_id = ?
+           ORDER BY round ASC, participant ASC""",
+        (discussion_id,),
+    ).fetchall()
+
+    # Build per-round summary
+    rounds = {}
+    for fb in feedback_rows:
+        r = fb["round"]
+        if r not in rounds:
+            rounds[r] = {"participants": [], "verdicts": {"approve": 0, "conditional": 0, "reject": 0, "": 0}}
+        rounds[r]["participants"].append({
+            "participant": fb["participant"],
+            "role": fb["role"],
+            "verdict": fb["verdict"],
+            "word_count": fb["word_count"],
+        })
+        v = fb["verdict"] if fb["verdict"] in rounds[r]["verdicts"] else ""
+        rounds[r]["verdicts"][v] += 1
+
+    # Determine consensus
+    all_verdicts = [fb["verdict"] for fb in feedback_rows if fb["verdict"]]
+    if all_verdicts:
+        approve_count = all_verdicts.count("approve")
+        reject_count = all_verdicts.count("reject")
+        total = len(all_verdicts)
+
+        if reject_count == 0 and approve_count == total:
+            consensus = "approved"
+        elif reject_count > total / 2:
+            consensus = "rejected"
+        elif approve_count > total / 2:
+            consensus = "approved_with_conditions"
+        else:
+            consensus = "in_progress"
+    else:
+        consensus = "no_feedback"
+
+    conn.close()
+
+    return 200, {
+        "discussion_id": discussion_id,
+        "title": row["title"],
+        "status": row["status"],
+        "current_round": row["current_round"],
+        "max_rounds": row["max_rounds"],
+        "rounds": rounds,
+        "consensus": consensus,
+        "total_feedback": len(feedback_rows),
+    }

@@ -19,12 +19,13 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
-VERSION = "1.2.0-dev"
+VERSION = "1.3.0-dev"
 
 # Local imports
 from config import get_config
 from db import get_db
 from auth import get_or_create_api_key, hash_key, check_auth, check_auth_multi, has_db_keys, _ensure_db_key
+from kpi_engine import KPIEngine
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
@@ -77,8 +78,8 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         """Handle CORS preflight requests."""
-        self._send_cors_headers()
         self.send_response(204)
+        self._send_cors_headers()
         self.end_headers()
 
     def _route(self, method: str):
@@ -287,6 +288,12 @@ def main():
     # Ensure at least one API key exists in DB (imports legacy key on first run)
     _ensure_db_key()
 
+    from kpi_engine import set_kpi_engine
+    # Start KPI computation engine (background thread)
+    kpi = KPIEngine(interval_seconds=cfg.get("analytics", {}).get("interval_seconds", 300))
+    set_kpi_engine(kpi)
+    kpi.start()
+
     # Load API key (for banner display — always masked)
     api_key = get_or_create_api_key()
     db_path = cfg["database"]["path"]
@@ -309,6 +316,7 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down.")
+        kpi.stop()
         server.server_close()
 
 

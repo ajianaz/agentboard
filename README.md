@@ -18,6 +18,9 @@ AgentBoard is a **project board that AI agents can actually use**. It's a single
 - 📦 **Export / Import** — Backup and restore projects as JSON
 - 🌙 **Dark theme** — Built-in, no toggle needed
 - 📦 **Zero dependencies** — Python 3.11+ stdlib only, no npm, no build step
+- 📊 **Analytics dashboard** — Per-agent KPI cards with success rate, throughput, and activity metrics
+- 💬 **Discussions** — Multi-round structured review system for proposals and decisions
+- 📋 **Activity feed** — Filterable activity log with stats and trends
 
 ## Quick Start
 
@@ -32,6 +35,14 @@ python server.py
 Open **http://localhost:8765** — done. Database is auto-created.
 
 First run prints your API key in the terminal and saves it to `.api_key`. Save it.
+
+### First-Run Sample Data
+
+```bash
+python onboard.py --yes --sample-data
+```
+
+This registers demo agents, creates sample projects, tasks, a discussion with feedback, and pre-computed KPI metrics — so the analytics dashboard has data to show immediately.
 
 **CLI flags** (optional):
 ```bash
@@ -224,12 +235,36 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 | GET | `/api/pages/{id}/comments` | Comments on a page |
 | POST | `/api/pages/{id}/comments` | Add comment to page |
 
-### Activity & Stats (2 endpoints)
+### Activity & Stats (3 endpoints)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/activity` | Recent activity (all or by project) |
 | GET | `/api/stats` | Cross-project summary |
+| GET | `/api/activity/stats?days=7` | Activity statistics by action type |
+
+### Analytics & KPI (6 endpoints)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/analytics/kpi?days=7&period=daily` | KPI summary metrics |
+| GET | `/api/analytics/kpi/{agent_id}?days=7` | KPI for specific agent |
+| GET | `/api/analytics/agents?days=7` | Agent performance cards |
+| GET | `/api/analytics/trends?metric=success_rate&days=30` | Trend data over time |
+| GET | `/api/analytics/export?format=csv&days=7` | Export analytics (JSON/CSV) |
+| POST | `/api/analytics/recompute` | Trigger immediate KPI recomputation |
+
+### Discussions (7 endpoints)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/discussions?limit=50` | List discussions |
+| GET | `/api/discussions/{id}` | Get discussion with feedback |
+| POST | `/api/discussions` | Create new discussion |
+| PATCH | `/api/discussions/{id}` | Update discussion |
+| DELETE | `/api/discussions/{id}` | Delete discussion |
+| POST | `/api/discussions/{id}/feedback` | Add feedback to discussion |
+| GET | `/api/discussions/{id}/summary` | Discussion summary |
 
 ### Search (1 endpoint)
 
@@ -253,7 +288,7 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 
 **Note:** `/api/setup` is a one-time endpoint — it can only be called once after the database is created. To add additional projects afterward, use `POST /api/projects`.
 
-**Total: 34 endpoints**
+**Total: 51 endpoints**
 
 ## Agent Integration
 
@@ -312,7 +347,7 @@ Each project can have its own status workflow:
 ```
 ┌─────────────────────────────────────┐
 │  Browser (index.html SPA)           │
-│  Sidebar + Kanban + Docs + Stats    │
+│  Sidebar + Kanban + Docs + Analytics │
 └──────────────┬──────────────────────┘
                │ fetch() → JSON API
                ▼
@@ -325,6 +360,8 @@ Each project can have its own status workflow:
 ┌─────────────────────────────────────┐
 │  agentboard.db                      │
 │  projects, tasks, pages, agents     │
+│  activity, kpi_daily, kpi_weekly    │
+│  discussions, discussion_feedback    │
 └─────────────────────────────────────┘
 ```
 
@@ -360,6 +397,12 @@ public_read = true
 [features]
 export_enabled = true
 import_enabled = true
+
+[analytics]
+interval_seconds = 300  # KPI computation interval
+retention_daily_kpi = 90
+retention_weekly_kpi = 365
+retention_activity = 180
 ```
 
 ### Priority: CLI args > env vars > TOML file > defaults
@@ -385,6 +428,7 @@ Environment variables override `agentboard.toml` values:
 | `AGENTBOARD_API_KEY_FILE` | API key file path | `.api_key` |
 | `AGENTBOARD_DB_PATH` | Database file path | `agentboard.db` |
 | `AGENTBOARD_PUBLIC_READ` | Public read-only GET access | `true` |
+| `AGENTBOARD_MAINTENANCE` | Enable maintenance mode | `false` |
 
 ### Config is optional
 

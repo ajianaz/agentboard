@@ -6,6 +6,7 @@ Usage:
     python onboard.py --yes              # Non-interactive (auto-confirm)
     python onboard.py --agents-only      # Only register agents
     python onboard.py --projects-only    # Only create projects
+    python onboard.py --sample-data      # Also create sample tasks, discussions, and activity
 
 Run after `git clone` and `python server.py` (first run auto-generates .api_key).
 """
@@ -15,6 +16,7 @@ import os
 import sys
 import urllib.request
 import urllib.error
+from datetime import datetime, timedelta, timezone
 
 # ── Config ──────────────────────────────────────────────────
 
@@ -102,7 +104,7 @@ def _load_api_key() -> str:
     return ""
 
 
-def api(method: str, path: str, data: dict = None) -> tuple:
+def api(method: str, path: str, data: dict = None, actor: str = None) -> tuple:
     """Make API call. Returns (status_code, response_dict_or_str)."""
     url = f"{BASE_URL}{path}"
     body = json.dumps(data).encode() if data else None
@@ -111,6 +113,8 @@ def api(method: str, path: str, data: dict = None) -> tuple:
     key = _load_api_key()
     if key:
         req.add_header("Authorization", f"Bearer {key}")
+    if actor:
+        req.add_header("X-Actor", actor)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status, json.loads(resp.read())
@@ -216,14 +220,138 @@ def create_projects(projects=None):
     return created
 
 
+# ── Sample Data ──────────────────────────────────────────
+
+
+def create_sample_data():
+    """Create sample tasks, discussions, and activity for demo purposes."""
+    key = _load_api_key()
+
+    # Sample tasks across different statuses
+    sample_tasks = [
+        ("hermes-fleet", {
+            "title": "Set up monitoring dashboard",
+            "description": "Deploy Grafana + Prometheus for fleet-wide monitoring",
+            "status": "done", "priority": "high", "assignee": "zeko",
+        }),
+        ("hermes-fleet", {
+            "title": "Review v1.3.0 analytics proposal",
+            "description": "Multi-round discussion with all agents on analytics module",
+            "status": "done", "priority": "high", "assignee": "cto",
+        }),
+        ("hermes-fleet", {
+            "title": "Optimize KPI computation pipeline",
+            "description": "Reduce batch processing time from 5s to <1s for daily KPIs",
+            "status": "in_progress", "priority": "medium", "assignee": "zeko",
+        }),
+        ("hermes-fleet", {
+            "title": "Write onboarding guide for new agents",
+            "description": "Document how to register, authenticate, and start using the board",
+            "status": "in_progress", "priority": "medium", "assignee": "kai",
+        }),
+        ("hermes-fleet", {
+            "title": "Audit API key rotation mechanism",
+            "description": "Verify SHA-256 hashing and grace period logic for key rotation",
+            "status": "review", "priority": "high", "assignee": "badsector",
+        }),
+        ("hermes-fleet", {
+            "title": "Budget analysis for Q3 infrastructure",
+            "description": "Calculate cloud costs, optimization opportunities, ROI estimates",
+            "status": "todo", "priority": "medium", "assignee": "cfo",
+        }),
+        ("hermes-fleet", {
+            "title": "Prepare launch announcement for v1.3.0",
+            "description": "Blog post, social media threads, community engagement plan",
+            "status": "todo", "priority": "low", "assignee": "sosmed",
+        }),
+        ("saas-core-engine", {
+            "title": "Implement JWT middleware in Go",
+            "description": "Add chi middleware for JWT validation on protected routes",
+            "status": "done", "priority": "high", "assignee": "cto",
+        }),
+        ("saas-core-engine", {
+            "title": "Design multi-tenant data model",
+            "description": "PostgreSQL schema for multi-tenant SaaS with row-level security",
+            "status": "in_progress", "priority": "high", "assignee": "cto",
+        }),
+        ("saas-core-engine", {
+            "title": "Cost-benefit analysis: Go vs Rust for API layer",
+            "description": "Compare performance benchmarks, ecosystem maturity, hiring pool",
+            "status": "proposed", "priority": "medium", "assignee": "badsector",
+        }),
+    ]
+
+    print(f"\n📝 Creating {len(sample_tasks)} sample tasks...")
+    created = 0
+    errors = 0
+
+    for slug, task_data in sample_tasks:
+        code, resp = api("POST", f"/api/projects/{slug}/tasks", {
+            **task_data,
+            "created_by": task_data.get("assignee", "owner"),
+        }, actor=task_data.get("assignee", "owner"))
+        if code in (200, 201):
+            created += 1
+            status_icon = {"done": "✅", "in_progress": "🔄", "review": "👀",
+                          "todo": "📋", "proposed": "💡"}.get(task_data["status"], "❓")
+            print(f"  {status_icon} [{task_data['status']:12s}] {task_data['title'][:50]}")
+        else:
+            errors += 1
+            err = resp.get("error", resp) if isinstance(resp, dict) else resp
+            print(f"  ❌ {task_data['title'][:50]} — {err}")
+
+    # Sample discussion
+    print(f"\n💬 Creating sample discussion...")
+    code, resp = api("POST", "/api/discussions", {
+        "title": "Q3 Roadmap Prioritization — Infrastructure vs Features",
+        "target_type": "project",
+        "target_id": "hermes-fleet",
+        "max_rounds": 3,
+        "created_by": "cto",
+    })
+    if code in (200, 201):
+        disc_id = resp.get("id", "")
+        print(f"  ✅ Discussion created: {disc_id}")
+
+        # Add sample feedback from different agents
+        sample_feedback = [
+            {"participant": "cfo", "role": "CFO", "verdict": "conditional",
+             "content": "Infrastructure investments should be capped at 30% of total effort. Need ROI estimates for each infra task before approval.",
+             "round": 1},
+            {"participant": "zeko", "role": "DevOps", "verdict": "approve",
+             "content": "Monitoring and security hardening are prerequisites, not optional. Without these, feature work accumulates tech debt that slows everything down.",
+             "round": 1},
+            {"participant": "kai", "role": "Content", "verdict": "approve",
+             "content": "Documentation and onboarding should be prioritized alongside infra. A well-documented system reduces support burden significantly.",
+             "round": 1},
+        ]
+        for fb in sample_feedback:
+            api("POST", f"/api/discussions/{disc_id}/feedback", fb)
+        print(f"  ✅ {len(sample_feedback)} feedback entries added")
+    else:
+        errors += 1
+
+    print(f"\n  Result: {created} tasks created, {errors} errors")
+    return created
+
+
 # ── Main ────────────────────────────────────────────────────
 
 
 def main():
-    args = set(sys.argv[1:])
+    args = sys.argv[1:]
     auto_yes = "--yes" in args
     agents_only = "--agents-only" in args
     projects_only = "--projects-only" in args
+    sample_data = "--sample-data" in args
+
+    # Parse --server and --key flags
+    global BASE_URL
+    for i, a in enumerate(args):
+        if a == "--server" and i + 1 < len(args):
+            BASE_URL = args[i + 1].rstrip("/")
+        if a == "--key" and i + 1 < len(args):
+            os.environ["AGENTBOARD_API_KEY"] = args[i + 1]
 
     print("╔══════════════════════════════════════════════╗")
     print("║      AgentBoard Onboard — Fleet Setup       ║")
@@ -247,6 +375,16 @@ def main():
 
     if not agents_only:
         create_projects()
+
+    if sample_data:
+        create_sample_data()
+        # Trigger KPI recomputation so analytics are available immediately
+        print("\n🔄 Recomputing KPI metrics...")
+        code, resp = api("POST", "/api/analytics/recompute")
+        if code == 200:
+            print("  ✅ KPI metrics computed")
+        else:
+            print(f"  ⚠️ KPI recomputation skipped ({code})")
 
     # Summary
     code, resp = api("GET", "/api/stats")
