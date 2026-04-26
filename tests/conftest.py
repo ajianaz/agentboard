@@ -20,13 +20,13 @@ if sys_path not in __import__("sys").path:
 @pytest.fixture
 def db_conn():
     """Provide a fresh in-memory SQLite connection with full schema."""
-    from db import SCHEMA_SQL
+    from db import FULL_SCHEMA_SQL
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(SCHEMA_SQL)
+    conn.executescript(FULL_SCHEMA_SQL)
     yield conn
     conn.close()
 

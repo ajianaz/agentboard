@@ -59,6 +59,12 @@ DEFAULTS = {
             "nova": 8649,
         },
     },
+    "analytics": {
+        "interval_seconds": 300,
+        "retention_daily_kpi": 90,
+        "retention_weekly_kpi": 365,
+        "retention_activity": 180,
+    },
 }
 
 # Singleton — loaded once on first access
