@@ -1,8 +1,26 @@
 # AgentBoard API Reference
 
 > Base URL: `http://127.0.0.1:8765/api`
-> Auth: `Authorization: Bearer <key>` (read from `.api_key`)
 > All responses: JSON. Error format: `{"error": "msg", "code": "ERROR_CODE"}`
+
+### Authentication
+
+| Request Type | Auth Required | Behavior |
+|-------------|--------------|----------|
+| `GET /api/*` | ❌ No (when `public_read=true`) | Browse freely |
+| `POST /api/*` | ✅ Yes | Create resources |
+| `PATCH /api/*` | ✅ Yes | Update resources |
+| `DELETE /api/*` | ✅ Yes | Delete resources |
+| `POST /api/setup` | ❌ No | First-run setup (always public) |
+| Static files + `/` | ❌ No | SPA served always |
+
+**Public read** is enabled by default (`auth.public_read = true`). To disable:
+```bash
+AGENTBOARD_PUBLIC_READ=false  # env var
+# or in agentboard.toml: [auth] public_read = false
+```
+
+**Auth header format:** `Authorization: Bearer *** (read from `.api_key`)`
 
 ---
 
@@ -44,6 +62,7 @@
 | GET | `/api/projects/{slug}/tasks?status=review` | Filter by status |
 | GET | `/api/projects/{slug}/tasks?assignee=cto` | Filter by agent |
 | POST | `/api/projects/{slug}/tasks` | Create task |
+| GET | `/api/tasks/{id}` | Get single task |
 | PATCH | `/api/tasks/{id}` | Update task |
 | DELETE | `/api/tasks/{id}` | Delete task |
 | GET | `/api/tasks?project=all` | Cross-project all tasks |

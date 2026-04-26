@@ -329,7 +329,21 @@ CREATE VIRTUAL TABLE pages_fts USING fts5(
 
 ## API Reference
 
-All API endpoints return JSON. Auth via `Authorization: Bearer <api_key>` header.
+All API endpoints return JSON.
+
+### Authentication
+
+| Request Type | Auth Required | Behavior |
+|-------------|--------------|----------|
+| `GET /api/*` | ❌ No (when `public_read=true`) | Browse freely |
+| `POST /api/*` | ✅ Yes | Create resources |
+| `PATCH /api/*` | ✅ Yes | Update resources |
+| `DELETE /api/*` | ✅ Yes | Delete resources |
+| `POST /api/setup` | ❌ No | First-run setup (always public) |
+
+**Public read** is enabled by default. Write operations require: `Authorization: Bearer *** `
+
+To disable public read: `AGENTBOARD_PUBLIC_READ=false` or `[auth] public_read = false` in `agentboard.toml`.
 
 ### Base URL
 `http://localhost:8765/api`
@@ -689,6 +703,7 @@ path = "agentboard.db"         # SQLite file path (relative to project root)
 
 [auth]
 api_key_file = ".api_key"      # File to store/load API key
+public_read = true             # Allow GET /api/* without auth
 
 [features]
 export_enabled = true           # Enable /api/export endpoints

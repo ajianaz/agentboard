@@ -51,14 +51,14 @@ DEFAULT_AGENTS = [
         "color": "#f59e0b",
     },
     {
-        "id": "somad",
+        "id": "sosmed",
         "name": "Somad",
         "role": "Social Media Manager — Distribution, Engagement",
         "avatar": "📱",
         "color": "#8b5cf6",
     },
     {
-        "id": "bad-sector",
+        "id": "badsector",
         "name": "Bad Sector",
         "role": "Devil's Advocate — Critical Review, Challenge Ideas",
         "avatar": "😈",
