@@ -460,8 +460,13 @@ END;""",
                 conn.executescript(sql)
                 log.info("Migration v%d applied successfully", ver)
             except Exception as e:
-                log.error("Migration v%d FAILED: %s — database may be in inconsistent state", ver, e)
-                raise  # Crash on migration failure — better to fail fast than run with corrupt schema
+                err_msg = str(e).lower()
+                if "duplicate column" in err_msg:
+                    # Column already exists in base schema — safe to skip
+                    log.info("Migration v%d: column already exists, skipping ALTER TABLE", ver)
+                else:
+                    log.error("Migration v%d FAILED: %s — database may be in inconsistent state", ver, e)
+                    raise  # Crash on migration failure — better to fail fast than run with corrupt schema
         conn.execute("INSERT INTO _schema_version (version) VALUES (?)", (ver,))
     conn.commit()
 
