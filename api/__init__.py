@@ -85,6 +85,15 @@ class Router:
 # Global router instance
 router = Router()
 
+
+def is_authenticated(headers: dict) -> bool:
+    """Check if the current request is authenticated.
+
+    Reads the internal X-Auth-Valid header set by server.py.
+    Returns True if the request passed auth checks, False for public/unauthenticated.
+    """
+    return headers.get("x-auth-valid", "false") == "true"
+
 # Route modules will be imported here when they exist
 # Each module calls router.get/post/patch/delete to register its routes.
 # from api import projects, tasks, pages, agents, comments, activity, search

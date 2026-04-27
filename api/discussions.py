@@ -16,7 +16,7 @@ Endpoints:
 import json
 from db import get_db, gen_id
 from activity_logger import log_activity_event, get_actor_from_headers
-from api import router
+from api import router, is_authenticated
 from webhook import on_discussion_created, on_discussion_feedback, on_discussion_closed
 
 
@@ -75,6 +75,10 @@ def list_discussions(params, query, body, headers):
         conditions.append("d.status = ?")
         sql_params.append(status)
 
+    # Unauthenticated: only show public discussions
+    if not is_authenticated(headers):
+        conditions.append("d.visibility = 'public'")
+
     where = ""
     if conditions:
         where = "WHERE " + " AND ".join(conditions)
@@ -117,6 +121,11 @@ def get_discussion(params, query, body, headers):
     ).fetchone()
 
     if not row:
+        conn.close()
+        return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
+
+    # Unauthenticated: deny access to hidden discussions
+    if not is_authenticated(headers) and row["visibility"] != "public":
         conn.close()
         return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
 
@@ -223,6 +232,9 @@ def update_discussion(params, query, body, headers):
         participants_json = json.dumps(raw) if isinstance(raw, list) else str(raw)
         updates.append("participants = ?")
         update_params.append(participants_json)
+    if "visibility" in data and data["visibility"] in ("public", "hidden"):
+        updates.append("visibility = ?")
+        update_params.append(data["visibility"])
 
     if updates:
         updates.append("updated_at = datetime('now')")

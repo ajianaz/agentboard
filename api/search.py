@@ -7,7 +7,7 @@ Endpoints:
 """
 
 from db import get_db
-from api import router
+from api import router, is_authenticated
 
 
 @router.get("/api/search")
@@ -40,6 +40,7 @@ def search(params, query, body, headers):
         limit = 20
 
     conn = get_db()
+    authed = is_authenticated(headers)
 
     # Build project filter clause (shared between task and page queries)
     project_join = ""
@@ -47,6 +48,9 @@ def search(params, query, body, headers):
     if project_slug:
         project_join = "JOIN projects proj ON t.project_id = proj.id"
         project_where = "AND proj.slug = ?"
+
+    # Visibility filter for unauthenticated requests
+    vis_filter = "" if authed else "AND proj.visibility = 'public'"
 
     results = []
 
@@ -65,6 +69,7 @@ def search(params, query, body, headers):
             JOIN projects proj ON tasks.project_id = proj.id
             WHERE tasks_fts MATCH ?
             {project_where if project_slug else ""}
+            {vis_filter}
             ORDER BY rank
             LIMIT ?
         """
@@ -99,6 +104,7 @@ def search(params, query, body, headers):
             JOIN projects proj ON pages.project_id = proj.id
             WHERE pages_fts MATCH ?
             {project_where if project_slug else ""}
+            {vis_filter}
             ORDER BY rank
             LIMIT ?
         """

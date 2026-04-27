@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS projects (
     priorities TEXT DEFAULT '[{"key":"critical","label":"Critical","color":"#ef4444"},{"key":"high","label":"High","color":"#f97316"},{"key":"medium","label":"Medium","color":"#eab308"},{"key":"low","label":"Low","color":"#22c55e"},{"key":"none","label":"None","color":"#6b7280"}]',
     tags TEXT DEFAULT '[]',
     is_archived INTEGER DEFAULT 0,
+    visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden')),
     metadata TEXT DEFAULT '{}',
     created_by TEXT,
     created_at TEXT DEFAULT (datetime('now')),
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 CREATE INDEX IF NOT EXISTS idx_projects_position ON projects(position);
 CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(is_archived);
+CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
 
 -- Tasks
 CREATE TABLE IF NOT EXISTS tasks (
@@ -74,9 +76,10 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
 
 -- Pages (Outline-style documents, recursive CTE-compatible with parent_id self-reference)
+-- project_id nullable for standalone pages (no project required)
 CREATE TABLE IF NOT EXISTS pages (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
     parent_id TEXT REFERENCES pages(id) ON DELETE CASCADE,
     title TEXT NOT NULL DEFAULT 'Untitled',
     content TEXT DEFAULT '',
@@ -85,12 +88,14 @@ CREATE TABLE IF NOT EXISTS pages (
     depth INTEGER DEFAULT 0,
     is_expanded INTEGER DEFAULT 1,
     metadata TEXT DEFAULT '{}',
+    visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden')),
     created_by TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_pages_project ON pages(project_id);
 CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_id);
+CREATE INDEX IF NOT EXISTS idx_pages_visibility ON pages(visibility);
 
 -- Agents
 CREATE TABLE IF NOT EXISTS agents (
@@ -212,11 +217,12 @@ CREATE INDEX IF NOT EXISTS idx_kpi_weekly_week ON kpi_weekly(week_start);
 CREATE TABLE IF NOT EXISTS discussions (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     title TEXT NOT NULL,
-    target_type TEXT DEFAULT '',
+    target_type TEXT DEFAULT '' CHECK(target_type IN ('task', 'page', 'project', '')),
     target_id TEXT DEFAULT '',
-    status TEXT DEFAULT 'open',
+    status TEXT DEFAULT 'open' CHECK(status IN ('open', 'closed', 'consensus')),
     current_round INTEGER DEFAULT 1,
     max_rounds INTEGER DEFAULT 5,
+    visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden')),
     created_by TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
@@ -224,6 +230,7 @@ CREATE TABLE IF NOT EXISTS discussions (
 CREATE INDEX IF NOT EXISTS idx_discussions_target ON discussions(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_discussions_status ON discussions(status);
 CREATE INDEX IF NOT EXISTS idx_discussions_created ON discussions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_discussions_visibility ON discussions(visibility);
 
 -- Discussion Feedback: per-round participant feedback
 CREATE TABLE IF NOT EXISTS discussion_feedback (
@@ -354,6 +361,7 @@ CREATE TABLE IF NOT EXISTS discussions (
     status TEXT DEFAULT 'open' CHECK(status IN ('open', 'closed', 'consensus')),
     current_round INTEGER DEFAULT 1,
     max_rounds INTEGER DEFAULT 5,
+    visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden')),
     created_by TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
@@ -361,6 +369,7 @@ CREATE TABLE IF NOT EXISTS discussions (
 CREATE INDEX IF NOT EXISTS idx_discussions_target ON discussions(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_discussions_status ON discussions(status);
 CREATE INDEX IF NOT EXISTS idx_discussions_created ON discussions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_discussions_visibility ON discussions(visibility);
 
 -- Discussion Feedback: per-round participant feedback
 CREATE TABLE IF NOT EXISTS discussion_feedback (
@@ -381,6 +390,36 @@ CREATE INDEX IF NOT EXISTS idx_feedback_participant ON discussion_feedback(discu
 ALTER TABLE discussions ADD COLUMN context TEXT DEFAULT '';
 ALTER TABLE discussions ADD COLUMN participants TEXT DEFAULT '';
 ALTER TABLE discussions ADD COLUMN leader TEXT DEFAULT '';""",
+        7: """-- Schema v7: visibility (public/hidden) for projects, pages, discussions
+-- Standalone pages: project_id becomes nullable (requires table rebuild)
+ALTER TABLE projects ADD COLUMN visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden'));
+ALTER TABLE discussions ADD COLUMN visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden'));
+CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
+CREATE INDEX IF NOT EXISTS idx_discussions_visibility ON discussions(visibility);
+
+-- Rebuild pages table to make project_id nullable and add visibility
+CREATE TABLE IF NOT EXISTS _pages_new (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES pages(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT 'Untitled',
+    content TEXT DEFAULT '',
+    icon TEXT DEFAULT '📄',
+    position REAL DEFAULT 0,
+    depth INTEGER DEFAULT 0,
+    is_expanded INTEGER DEFAULT 1,
+    metadata TEXT DEFAULT '{}',
+    visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden')),
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+INSERT OR IGNORE INTO _pages_new SELECT *, 'public' FROM pages;
+DROP TABLE pages;
+ALTER TABLE _pages_new RENAME TO pages;
+CREATE INDEX IF NOT EXISTS idx_pages_project ON pages(project_id);
+CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_id);
+CREATE INDEX IF NOT EXISTS idx_pages_visibility ON pages(visibility);""",
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)

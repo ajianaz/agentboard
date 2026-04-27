@@ -14,7 +14,7 @@ Endpoints:
 
 import json
 from db import get_db, gen_id, slugify
-from api import router
+from api import router, is_authenticated
 
 
 # ---------------------------------------------------------------------------
@@ -65,24 +65,29 @@ def _log_activity(conn, project_id: str | None, target_type: str,
 def list_projects(params, query, body, headers):
     conn = get_db()
     include_archived = "1" in query.get("include_archived", [])
+    authed = is_authenticated(headers)
+
+    # Unauthenticated: only show public projects
+    visibility_filter = "" if authed else "AND p.visibility = 'public'"
 
     if include_archived:
         rows = conn.execute(
-            """SELECT p.*,
+            f"""SELECT p.*,
                       COALESCE(t.cnt, 0) AS task_count
                FROM projects p
                LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM tasks GROUP BY project_id) t
                     ON t.project_id = p.id
+               WHERE 1=1 {visibility_filter}
                ORDER BY p.position ASC, p.created_at ASC"""
         ).fetchall()
     else:
         rows = conn.execute(
-            """SELECT p.*,
+            f"""SELECT p.*,
                       COALESCE(t.cnt, 0) AS task_count
                FROM projects p
                LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM tasks GROUP BY project_id) t
                     ON t.project_id = p.id
-               WHERE p.is_archived = 0
+               WHERE p.is_archived = 0 {visibility_filter}
                ORDER BY p.position ASC, p.created_at ASC"""
         ).fetchall()
 
@@ -266,6 +271,15 @@ def update_project(params, query, body, headers):
     for field in ("description", "icon", "color"):
         if field in data and data[field] is not None:
             updates[field] = str(data[field]).strip()
+
+    # Visibility (validated enum)
+    if "visibility" in data and data["visibility"] is not None:
+        vis = str(data["visibility"]).strip().lower()
+        if vis not in ("public", "hidden"):
+            conn.close()
+            return 400, {"error": "visibility must be 'public' or 'hidden'", "code": "VALIDATION_ERROR"}
+        updates["visibility"] = vis
+        detail_changes["visibility"] = vis
 
     # Position
     if "position" in data and data["position"] is not None:

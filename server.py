@@ -157,6 +157,13 @@ class RequestHandler(BaseHTTPRequestHandler):
                     )
                     return
 
+        # Pass auth status to API handlers via internal header
+        # (false = public/unauthenticated request, true = authenticated)
+        if needs_auth:
+            self.headers["x-auth-valid"] = "true"
+        else:
+            self.headers["x-auth-valid"] = "false"
+
         # API routes
         self._handle_api(method, path, query)
 

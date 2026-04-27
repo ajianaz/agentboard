@@ -324,6 +324,19 @@ select{appearance:auto}
 .tab-bar button{padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--t2);font-size:13px;font-weight:500;cursor:pointer;transition:color .15s,border-color .15s}
 .tab-bar button:hover{color:var(--t1)}
 .tab-bar button.active{color:var(--ac);border-bottom-color:var(--ac)}
+
+/* Visibility */
+.vis-badge{font-size:11px;flex-shrink:0;opacity:.7;user-select:none;line-height:1}
+.vis-badge.pub{color:var(--ok)}
+.vis-badge.hid{color:var(--t2)}
+.vis-toggle{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);cursor:pointer;transition:border-color .15s;user-select:none}
+.vis-toggle:hover{border-color:var(--bd2)}
+.vis-toggle .vis-sw{width:36px;height:20px;border-radius:10px;background:var(--bg3);position:relative;transition:background .2s;flex-shrink:0}
+.vis-toggle .vis-sw::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s}
+.vis-toggle .vis-sw.on{background:var(--ok)}
+.vis-toggle .vis-sw.on::after{transform:translateX(16px)}
+.vis-toggle .vis-label{font-size:13px;font-weight:500;color:var(--t0)}
+.vis-toggle .vis-sublabel{font-size:11px;color:var(--t2)}
 </style>
 </head>
 <body>
@@ -560,6 +573,28 @@ async function loadComments(taskId){
   el.scrollTop=el.scrollHeight;
 }
 
+// ── Visibility helpers ──
+function visBadge(visibility){
+  if(visibility==='hidden')return`<span class="vis-badge hid" title="Hidden">🚫</span>`;
+  return`<span class="vis-badge pub" title="Public">👁️</span>`;
+}
+async function toggleProjectVisibility(slug,currentVis){
+  const next=currentVis==='hidden'?'public':'hidden';
+  const ok=await api('PATCH','/api/projects/'+slug,{visibility:next});
+  if(ok){
+    toast(`Project visibility set to ${next}`,'ok');
+    render();
+  }
+}
+async function toggleDiscussionVisibility(id,currentVis){
+  const next=currentVis==='hidden'?'public':'hidden';
+  const ok=await api('PATCH','/api/discussions/'+id,{visibility:next});
+  if(ok){
+    toast(`Discussion visibility set to ${next}`,'ok');
+    renderDiscussions(document.getElementById('app'));
+  }
+}
+
 // ── Setup ──
 function showSetup(){
   document.getElementById('app').innerHTML=`<div class="setup"><div class="setup-card"><h1>Agent<span>Board</span></h1><p>Enter your API key (shown when server starts)</p><input id="s-key" type="password" placeholder="API Key"><button class="btn btn-p" style="width:100%" onclick="doSetup()">Connect</button><div class="err" id="s-err"></div></div></div>`;
@@ -660,7 +695,7 @@ async function loadSidebar(){
   S.projects=data.projects||[];
   const el=document.getElementById('sb-projects');
   el.innerHTML=S.projects.map(p=>{
-    return`<a href="#project/${p.slug}/board"><span class="sb-proj-icon">${p.icon||'📋'}</span>${esc(p.name)}<span class="sb-count">${p.task_count||0}</span></a>`;
+    return`<a href="#project/${p.slug}/board"><span class="sb-proj-icon">${p.icon||'📋'}</span>${esc(p.name)}${isAuthenticated()?visBadge(p.visibility):''}<span class="sb-count">${p.task_count||0}</span></a>`;
   }).join('');
   const addProj=document.getElementById('sb-add-proj');
   addProj.innerHTML=isAuthenticated()?'<a href="#" class="sb-add" id="add-proj-btn">+ New Project</a>':'';
@@ -749,7 +784,7 @@ async function renderOverview(app){
     const done=stats.per_project?.[p.slug]?.done||0;
     const pct=total?Math.round(done/total*100):0;
     h+=`<div class="proj-card" onclick="location.hash='#project/${p.slug}/board'">
-      <div class="proj-card-hdr"><span class="proj-card-icon">${p.icon||'📋'}</span><span class="proj-card-name">${esc(p.name)}</span></div>
+      <div class="proj-card-hdr"><span class="proj-card-icon">${p.icon||'📋'}</span><span class="proj-card-name">${esc(p.name)}</span>${isAuthenticated()?visBadge(p.visibility):''}</div>
       <div class="proj-card-bar"><div class="proj-card-bar-fill" style="width:${pct}%"></div></div>
       <div class="proj-card-meta"><span>${done}/${total} tasks</span><span>${pct}%</span></div>
     </div>`;
@@ -899,6 +934,7 @@ async function renderDocsHub(app, slug){
   let h = `<div class="docs-layout" style="height:100vh">
     <div class="docs-tree">
       <div class="docs-tree-hdr"><h3>📄 All Docs</h3>
+        ${isAuthenticated()?`<button class="btn btn-p btn-sm" onclick="addStandalonePage()">+ Standalone</button>`:''}
         <span style="font-size:11px;color:var(--t2)">${totalCount} pages</span>
       </div>`;
 
@@ -926,6 +962,7 @@ async function renderDocsHub(app, slug){
         const exp = d < 1 ? '▾' : (hasKids ? '▸' : '');
         return `<div class="tree-item" data-id="${pg.id}" style="padding-left:${8+d*16}px" onclick="loadPageReadonly('${pg.id}','${projSlug}',_roCachedPages)">
           <span class="toggle">${exp}</span><span class="page-icon">📄</span><span class="page-title">${esc(pg.title)}</span>
+          ${isAuthenticated()?`<span class="page-acts"><button class="btn-icon" style="font-size:12px" onclick="event.stopPropagation();deletePage('${pg.id}','${projSlug}')">🗑</button></span>`:''}
         </div>`;
       }).join('');
       h += _treeHtml(roots, 0);
@@ -965,7 +1002,7 @@ async function loadPageReadonly(id, slug, cachedPages){
   if(cachedPages){
     page = cachedPages.find(p => p.id === id);
   }
-  if(!page){
+  if(!page && slug && slug !== '__standalone__'){
     const data = await api('GET', '/api/projects/'+slug+'/pages');
     if(!data) return;
     page = (data.pages||[]).find(p => p.id === id);
@@ -1079,6 +1116,10 @@ async function deletePage(id,slug){
   toast('Page deleted','ok');
   setTimeout(()=>render(),200);
 }
+async function addStandalonePage(){
+  const ok=await api('POST','/api/pages',{title:'New Standalone Page',content:''});
+  if(ok){toast('Standalone page created','ok');setTimeout(()=>render(),200)}
+}
 
 // ── Project Settings ──
 async function renderProjectSettings(app,slug){
@@ -1086,7 +1127,14 @@ async function renderProjectSettings(app,slug){
   const data=await api('GET','/api/projects/'+slug);
   if(!data){app.innerHTML='<div class="empty"><h3>Project not found</h3></div>';return}
   const p=data.project||data;
+  const isPublic=p.visibility!=='hidden';
   let h=`<div class="settings-wrap"><h2>${p.icon||'📋'} ${esc(p.name)}</h2>
+    <div class="form-group"><label>Visibility</label>
+      <div class="vis-toggle" onclick="toggleProjectVisibility('${slug}','${p.visibility||'public'}')">
+        <div class="vis-sw ${isPublic?'on':''}"></div>
+        <div><div class="vis-label">${isPublic?'👁️ Public':'🚫 Hidden'}</div><div class="vis-sublabel">${isPublic?'Visible to everyone':'Only visible when authenticated'}</div></div>
+      </div>
+    </div>
     <div class="form-group"><label>Name</label><input id="ps-name" value="${esc(p.name)}"></div>
     <div class="form-group"><div class="field-row"><div><label>Icon (emoji)</label><input class="icon-inp" id="ps-icon" value="${esc(p.icon||'')}"></div><div><label>Color</label><input class="color-inp" id="ps-color" type="color" value="${p.color||'#3b82f6'}"></div></div></div>
     <div class="form-group"><label>Description</label><textarea id="ps-desc" rows="3">${esc(p.description||'')}</textarea></div>
@@ -1503,6 +1551,7 @@ function renderDiscussionItem(d){
   ).join(' ') : '';
   return `<div class="disc-item" onclick="showDiscussion('${d.id}')">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      ${isAuthenticated()?visBadge(d.visibility):''}
       <span style="font-weight:600;font-size:14px;flex:1">${esc(d.title)}</span>
       <span class="disc-status" style="background:${statusCls};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${statusLabel}</span>
     </div>
@@ -1619,6 +1668,7 @@ async function showDiscussion(id){
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <h2 style="flex:1">${esc(d.title)}</h2>
         <span class="disc-status" style="background:${st.bg};color:#fff">${st.label}</span>
+        ${isAuthenticated()?`<span class="vis-badge ${d.visibility==='hidden'?'hid':'pub'}" style="cursor:pointer;font-size:14px;opacity:1" title="Click to toggle visibility" onclick="event.stopPropagation();toggleDiscussionVisibility('${d.id}','${d.visibility||'public'}')">${d.visibility==='hidden'?'🚫':'👁️'}</span>`:''}
       </div>
       <div style="font-size:12px;color:var(--t2);margin-bottom:16px;display:flex;flex-wrap:wrap;gap:12px">
         <span>Created by ${esc(d.created_by||'unknown')}</span>
