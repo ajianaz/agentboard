@@ -647,12 +647,12 @@ async function toggleDiscussionVisibility(id,currentVis){
   }
 }
 
-async function togglePageVisibility(pageId, currentVis){
+async function togglePageVisibility(pageId, currentVis, projSlug){
   const next = currentVis==='hidden'?'public':'hidden';
   const ok=await api('PATCH',`/api/pages/${pageId}`,{visibility:next});
   if(ok){
     toast(`Page visibility set to ${next}`,'ok');
-    renderDocsHub(document.getElementById('app'), projSlug || undefined);
+    renderDocsHub(document.getElementById('app'), projSlug);
   }
 }
 

@@ -24,9 +24,10 @@ def get_public_stats(params, query, body, headers):
     conn = get_db()
     authed = is_authenticated(headers)
 
-    # --- Per-agent task counts (only non-archived projects) ---
+    # --- Per-agent task counts (only non-archived, respect visibility for unauth) ---
+    vis_filter = "" if authed else "AND p.visibility = 'public'"
     agent_rows = conn.execute(
-        """SELECT t.assignee,
+        f"""SELECT t.assignee,
                   COUNT(t.id) as total,
                   SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) as done,
                   SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
@@ -34,7 +35,7 @@ def get_public_stats(params, query, body, headers):
                   SUM(CASE WHEN t.status = 'review' THEN 1 ELSE 0 END) as review
            FROM tasks t
            JOIN projects p ON t.project_id = p.id
-           WHERE p.is_archived = 0 AND t.assignee IS NOT NULL AND t.assignee != ''
+           WHERE p.is_archived = 0 {vis_filter} AND t.assignee IS NOT NULL AND t.assignee != ''
            GROUP BY t.assignee
            ORDER BY done DESC"""
     ).fetchall()
@@ -84,9 +85,9 @@ def get_public_stats(params, query, body, headers):
             "completion_pct": round(done / total * 100, 1) if total > 0 else 0,
         })
 
-    # --- Overall status totals (non-archived only, consistent with per-project) ---
+    # --- Overall status totals (non-archived, respect visibility for unauth) ---
     totals = conn.execute(
-        """SELECT
+        f"""SELECT
               SUM(CASE WHEN t.status = 'proposed' THEN 1 ELSE 0 END) as proposed,
               SUM(CASE WHEN t.status = 'todo' THEN 1 ELSE 0 END) as todo,
               SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
@@ -95,7 +96,7 @@ def get_public_stats(params, query, body, headers):
               COUNT(t.id) as total
            FROM tasks t
            JOIN projects p ON t.project_id = p.id
-           WHERE p.is_archived = 0"""
+           WHERE p.is_archived = 0 {vis_filter}"""
     ).fetchone()
 
     status_totals = {
