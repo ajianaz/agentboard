@@ -451,7 +451,9 @@ END;
 CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages BEGIN
     INSERT INTO pages_fts(pages_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
     INSERT INTO pages_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
-END;""",
+END;
+-- Rebuild FTS index from existing pages so pre-existing rows are searchable
+INSERT INTO pages_fts(pages_fts) VALUES('rebuild');""",
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)
@@ -461,8 +463,9 @@ END;""",
                 log.info("Migration v%d applied successfully", ver)
             except Exception as e:
                 err_msg = str(e).lower()
-                if "duplicate column" in err_msg:
-                    # Column already exists in base schema — safe to skip
+                is_alter = "alter table" in sql.lower()
+                if is_alter and "duplicate column" in err_msg:
+                    # ALTER TABLE ADD COLUMN on a column that already exists — safe to skip
                     log.info("Migration v%d: column already exists, skipping ALTER TABLE", ver)
                 else:
                     log.error("Migration v%d FAILED: %s — database may be in inconsistent state", ver, e)

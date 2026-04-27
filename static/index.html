@@ -647,12 +647,9 @@ async function toggleDiscussionVisibility(id,currentVis){
   }
 }
 
-async function togglePageVisibility(pageId, currentVis, projSlug){
+async function togglePageVisibility(pageId, currentVis){
   const next = currentVis==='hidden'?'public':'hidden';
-  const endpoint = projSlug && projSlug!=='__standalone__'
-    ? `/api/projects/${projSlug}/pages/${pageId}`
-    : `/api/pages/${pageId}`;
-  const ok=await api('PATCH',endpoint,{visibility:next});
+  const ok=await api('PATCH',`/api/pages/${pageId}`,{visibility:next});
   if(ok){
     toast(`Page visibility set to ${next}`,'ok');
     renderDocsHub(document.getElementById('app'), projSlug || undefined);
@@ -1026,7 +1023,7 @@ async function renderDocsHub(app, slug){
         const exp = d < 1 ? '▾' : (hasKids ? '▸' : '');
         return `<div class="tree-item" data-id="${pg.id}" style="padding-left:${8+d*16}px" onclick="loadPageReadonly('${pg.id}','${projSlug}',_roCachedPages)">
           <span class="toggle">${exp}</span><span class="page-icon">📄</span><span class="page-title">${esc(pg.title)}</span>
-          ${isAuthenticated()?`<span class="page-acts">${projSlug==='__standalone__'?visBadge(pg.visibility):''}<button class="btn-icon" style="font-size:12px" onclick="event.stopPropagation();deletePage('${pg.id}','${projSlug}')">🗑</button>${projSlug==='__standalone__'?`<button class="btn-icon" style="font-size:12px" title="Toggle visibility" onclick="event.stopPropagation();togglePageVisibility('${pg.id}','${pg.visibility||'public'}','${projSlug}')">${pg.visibility==='hidden'?'👁️':'🔒'}</button>`:''}</span>`:''}
+          ${isAuthenticated()?`<span class="page-acts">${projSlug==='__standalone__'?visBadge(pg.visibility):''}<button class="btn-icon" style="font-size:12px" onclick="event.stopPropagation();deletePage('${pg.id}','${projSlug}')">🗑</button>${projSlug==='__standalone__'?`<button class="btn-icon" style="font-size:12px" title="Toggle visibility" onclick="event.stopPropagation();togglePageVisibility('${pg.id}','${pg.visibility||'public'}')">${pg.visibility==='hidden'?'👁️':'🔒'}</button>`:''}</span>`:''}
         </div>`;
       }).join('');
       h += _treeHtml(roots, 0);
