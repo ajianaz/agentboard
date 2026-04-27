@@ -339,11 +339,11 @@ select{appearance:auto}
   <div id="sb-add-proj"></div>
   <div class="sb-sec">System</div>
   <a href="#docs">📄 Docs</a>
-  <a href="#analytics">📊 Analytics</a>
   <a href="#discussions">💬 Discussions</a>
-  <a href="#activity">📋 Activity</a>
-  <a href="#agents">🤖 Agents</a>
-  <a href="#settings">⚙️ Settings</a>
+  <a href="#analytics" id="sb-analytics">📊 Analytics</a>
+  <a href="#activity" id="sb-activity">📋 Activity</a>
+  <a href="#agents" id="sb-agents">🤖 Agents</a>
+  <a href="#settings" id="sb-settings">⚙️ Settings</a>
   <div class="sb-foot">
     <div id="sb-auth-row">
       <span id="sb-auth-icon" title="Click to manage API key">🔓</span>
@@ -592,8 +592,14 @@ function updateAuthBadge(){
   const inp=document.getElementById('sb-key-input');
   const btn=document.getElementById('sb-key-btn');
   const out=document.getElementById('sb-key-logout');
+  const authed=isAuthenticated();
+  // Toggle visibility of auth-gated sidebar links
+  ['sb-analytics','sb-activity','sb-agents','sb-settings'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.style.display=authed?'':'none';
+  });
   if(!icon)return;
-  if(isAuthenticated()){
+  if(authed){
     icon.textContent='🔒';
     icon.title='Authenticated — click to change key';
     if(inp){inp.style.display='none';inp.value=''}
@@ -810,7 +816,7 @@ async function renderBoard(app,slug){
       ${isAuthenticated()?`<button class="btn btn-p btn-sm" onclick="showNewTask('${slug}')">+ New Task</button>`:''}
     </div>
     <a href="#project/${slug}/docs" class="btn btn-s btn-sm">📄 Docs</a>
-    <a href="#project/${slug}/settings" class="btn btn-s btn-sm">⚙️ Settings</a>
+    ${isAuthenticated()?`<a href="#project/${slug}/settings" class="btn btn-s btn-sm">⚙️ Settings</a>`:''}
   </div>`;
   h+=`<div class="kb-board">`;
   statuses.forEach(s=>{
@@ -1076,6 +1082,7 @@ async function deletePage(id,slug){
 
 // ── Project Settings ──
 async function renderProjectSettings(app,slug){
+  if(!isAuthenticated()){app.innerHTML='<div class="empty"><h3>🔒 Authentication required</h3><p>Set your API key to access project settings</p></div>';return}
   const data=await api('GET','/api/projects/'+slug);
   if(!data){app.innerHTML='<div class="empty"><h3>Project not found</h3></div>';return}
   const p=data.project||data;
@@ -1402,6 +1409,7 @@ function doImport(){
 
 // ── Analytics ──
 async function renderAnalytics(app){
+  if(!isAuthenticated()){app.innerHTML='<div class="empty"><h3>🔒 Authentication required</h3><p>Set your API key to view analytics</p></div>';return}
   const days = new URLSearchParams(location.hash.split('?')[1]).get('days') || '7';
   const [agentData, trendData] = await Promise.all([
     api('GET', `/api/analytics/agents?days=${days}`),
@@ -1732,6 +1740,7 @@ async function createDiscussion(){
 
 // ── Activity ──
 async function renderActivity(app){
+  if(!isAuthenticated()){app.innerHTML='<div class="empty"><h3>🔒 Authentication required</h3><p>Set your API key to view activity log</p></div>';return}
   const params = new URLSearchParams(location.hash.split('?')[1]||'');
   const target_type = params.get('target_type') || '';
   const action = params.get('action') || '';
