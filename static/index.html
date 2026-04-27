@@ -838,7 +838,7 @@ async function renderOverview(app){
   h+=statCard(stats.total_tasks||0,'Total Tasks','var(--ac)');
   h+=statCard(stats.done_tasks||0,'Done','var(--ok)');
   h+=statCard(stats.in_progress_tasks||0,'In Progress','var(--ac)');
-  h+=statCard(stats.proposed_tasks||0,'Needs Review','var(--warn)');
+  h+=statCard((stats.todo_tasks||0)+(stats.proposed_tasks||0)+(stats.review_tasks||0),'Pending','#6b7280');
   h+=`</div>`;
   // Project grid
   h+=`<div style="padding:24px 24px 8px"><h2 style="font-size:16px;font-weight:600">Projects</h2></div>`;
