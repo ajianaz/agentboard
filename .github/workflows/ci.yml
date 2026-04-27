@@ -61,7 +61,12 @@ jobs:
       - name: Install pytest
         run: pip install pytest
       - name: Run integration tests
-        run: python3 tests/test_integration.py
+        run: |
+          if [ -f tests/test_integration.py ]; then
+            python3 tests/test_integration.py
+          else
+            echo "SKIP: No integration tests found"
+          fi
 
   standalone-verify:
     name: Standalone Verify

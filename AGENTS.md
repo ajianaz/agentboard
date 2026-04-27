@@ -193,12 +193,13 @@ docker compose up -d
 | Aspect | Detail |
 |--------|--------|
 | **Image** | `ghcr.io/ajianaz/agentboard:latest` (main) or `:develop` (dev) |
+| **Platforms** | `linux/amd64` + `linux/arm64` (multi-arch, single manifest) |
 | **WORKDIR** | `/app` |
 | **Data persistence** | Bind mount `.:/app` — DB, API key, config survive restarts |
 | **Healthcheck** | `python3 -c "import urllib.request; ..."` (zero-dep, no curl needed) |
 | **Env config** | `env_file: ./.env` — all vars optional, see `.env.example` |
 | **Reverse proxy** | Traefik labels commented in docker-compose.yml — uncomment for public deployment |
-| **Multi-arch** | amd64 + arm64 native builds (no QEMU emulation) |
+| **Multi-arch** | amd64 + arm64 via QEMU emulation in single buildx job |
 
 ### Bind Mount Pattern
 
@@ -1119,6 +1120,152 @@ python -m pytest tests/ -v
 # With coverage
 python -m pytest tests/ --cov=. --cov-report=term-missing
 ```
+
+## Agent Integration Guide
+
+### How Agents Use AgentBoard
+
+Any AI agent (or human) can interact with AgentBoard through two layers:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    Your Agent                        │
+├─────────────────────┬───────────────────────────────┤
+│  Option A: API      │  Option B: Coordinator Script  │
+│  (direct HTTP)      │  (tools/discussion.py)         │
+│                     │                                │
+│  • Task CRUD        │  • Structured multi-round      │
+│  • Feedback         │    discussions                  │
+│  • Search           │  • Draft/synthesis workflow    │
+│  • Activity queries │  • Pluggable transport         │
+│  • Export/import    │                                │
+├─────────────────────┴───────────────────────────────┤
+│              AgentBoard API (HTTP JSON)               │
+│         http://localhost:8765/api/*                  │
+└─────────────────────────────────────────────────────┘
+```
+
+**Option A — Direct API** is the simplest and recommended for most use cases. Agents read `AGENTS.md`, pick the endpoints they need, and call them via HTTP. Zero setup beyond getting the API key.
+
+**Option B — Coordinator Script** adds structure for multi-agent discussions. The `DiscussionSession` class in `tools/discussion.py` manages the full lifecycle: create → draft → distribute → collect → synthesize → close. Requires a custom `send_fn` to deliver requests to participants.
+
+### Creating Agent-Specific Tools
+
+Agents should create **custom tooling** that wraps AgentBoard API calls in their own workflow. This keeps agent logic separate from the board while enabling rich tracking.
+
+#### Pattern: Agent Wrapper Script
+
+Create a file in `tools/` (or anywhere importable) that wraps API calls with agent-specific logic:
+
+```python
+#!/usr/bin/env python3
+"""Agent-specific AgentBoard wrapper.
+
+Usage:
+    python tools/my_agent_workflow.py start-task "Fix auth bug"
+    python tools/my_agent_workflow.py report-progress
+    python tools/my_agent_workflow.py daily-standup
+"""
+import json
+import os
+import sys
+import urllib.request
+from datetime import datetime, timezone, timedelta
+
+BOARD_URL = os.environ.get("AGENTBOARD_URL", "http://localhost:8765")
+API_KEY = os.environ.get("AGENTBOARD_API_KEY", open(".api_key").read().strip())
+AGENT_ID = os.environ.get("AGENTBOARD_ID", "my-agent")
+
+def _api(method, path, body=None):
+    """Make an API call to AgentBoard."""
+    url = f"{BOARD_URL}{path}"
+    data = json.dumps(body).encode() if body else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {API_KEY}")
+    req.add_header("Content-Type", "application/json")
+    resp = urllib.request.urlopen(req, timeout=15)
+    return json.loads(resp.read())
+
+def start_task(title, description="", project="default", priority="medium"):
+    """Create and immediately start a task."""
+    task = _api("POST", f"/api/projects/{project}/tasks", {
+        "title": title,
+        "description": description,
+        "status": "in_progress",
+        "priority": priority,
+        "assignee": AGENT_ID,
+        "created_by": f"agent:{AGENT_ID}",
+    })
+    print(f"Started task: {task['id']} — {title}")
+    return task
+
+def report_progress():
+    """Get current workload and print a summary."""
+    stats = _api("GET", f"/api/agents/{AGENT_ID}/workload")
+    tasks = _api("GET", f"/api/tasks?project=all&assignee={AGENT_ID}")
+    print(f"Agent: {AGENT_ID}")
+    print(f"  Total: {stats['total']} | Done: {stats['completed']}")
+    print(f"  In Progress: {stats['by_status'].get('in_progress', 0)}")
+    for t in tasks:
+        if t["status"] not in ("done", "rejected"):
+            print(f"  [{t['status']}] {t['title']}")
+    return stats
+
+def daily_standup():
+    """Generate a standup summary from recent activity."""
+    activity = _api("GET", f"/api/activity")
+    my_activity = [a for a in activity if a.get("actor") == AGENT_ID]
+    completed = [a for a in my_activity if "done" in a.get("detail", "")]
+    in_progress = [a for a in my_activity if "in_progress" in a.get("detail", "")]
+    print(f"=== Standup: {AGENT_ID} ===")
+    print(f"Completed: {len(completed)} tasks")
+    print(f"In Progress: {len(in_progress)} tasks")
+    return my_activity
+```
+
+#### Best Practices for Agent Tools
+
+| Practice | Why |
+|----------|-----|
+| **One script per agent** | Keeps workflows isolated — no conflicts between agents |
+| **Env-based config** | `AGENTBOARD_URL`, `AGENTBOARD_API_KEY`, `AGENT_ID` — works in any environment |
+| **Zero pip dependencies** | Use `urllib.request` — matches AgentBoard's stdlib-only philosophy |
+| **Meaningful `created_by`** | Always set `"created_by": "agent:{AGENT_ID}"` for traceability |
+| **Set `assignee`** | Always set assignee to yourself for workload tracking |
+| **Use tags** | Tag tasks with project context for cross-project filtering |
+| **Status updates** | Update status in real-time: `todo → in_progress → review → done` |
+| **Comments for context** | Use comments to explain decisions and blockers |
+| **Propose before build** | Create tasks as `proposed` for owner approval on significant work |
+
+### Discussion Integration
+
+For agents that participate in multi-agent discussions, create a feedback handler:
+
+```python
+def submit_discussion_feedback(discussion_id, content, verdict="approve", role=""):
+    """Submit feedback to an ongoing discussion."""
+    return _api("POST", f"/api/discussions/{discussion_id}/feedback", {
+        "participant": AGENT_ID,
+        "role": role or "Reviewer",
+        "verdict": verdict,  # approve, conditional, reject
+        "content": content,
+    })
+```
+
+### Performance Tracking
+
+AgentBoard automatically tracks agent performance through:
+
+1. **Workload API** — `GET /api/agents/{id}/workload` returns task counts by status
+2. **Activity Log** — every write operation is logged with actor, action, timestamp
+3. **KPI Engine** — background computation of completion rates, throughput trends
+4. **Analytics API** — `GET /api/analytics` for aggregated metrics
+
+Agents should:
+- **Always update task status** when work begins/ends — this feeds the KPI engine
+- **Use `created_by`** consistently — enables per-agent activity filtering
+- **Comment on blockers** — owner can see and unblock via dashboard
+- **Review own analytics** — `GET /api/agents/{id}/workload` before accepting new tasks
 
 ## License
 
