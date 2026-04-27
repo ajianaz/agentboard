@@ -1,328 +1,530 @@
 # AgentBoard API Reference
 
-> Base URL: `http://127.0.0.1:8765/api`
+> **Version:** 1.5.0 | **Base URL:** `http://127.0.0.1:8765/api`
+> **Total Endpoints:** 55 | **Modules:** 14
 > All responses: JSON. Error format: `{"error": "msg", "code": "ERROR_CODE"}`
 
-### Authentication
+---
+
+## Authentication
 
 | Request Type | Auth Required | Behavior |
 |-------------|--------------|----------|
-| `GET /api/*` | ❌ No (when `public_read=true`) | Browse freely |
+| `GET /api/*` (public routes) | ❌ No | Browse freely |
 | `POST /api/*` | ✅ Yes | Create resources |
 | `PATCH /api/*` | ✅ Yes | Update resources |
 | `DELETE /api/*` | ✅ Yes | Delete resources |
-| `POST /api/setup` | ❌ No | First-run setup (always public) |
-| `GET /api/auth/*` | ✅ Yes | Key management (always protected) |
-| `GET /api/health` | ❌ No | Health check (always public) |
+| `POST /api/setup` | ❌ No | First-run setup |
+| `GET /api/auth/*` | ✅ Yes | Key management |
+| `GET /api/health` | ❌ No | Health check |
 | Static files + `/` | ❌ No | SPA served always |
 
-**Public read** is enabled by default (`auth.public_read = true`). To disable:
-```bash
-AGENTBOARD_PUBLIC_READ=false  # env var
-# or in agentboard.toml: [auth] public_read = false
-```
-
-**Auth header format:** `Authorization: Bearer <api_key>` (read from `.api_key` file)
+**Public GET routes** (configurable via `agentboard.toml` → `auth.public_get_routes`):
+`/api/health`, `/api/projects`, `/api/tasks`, `/api/pages`, `/api/stats`, `/api/stats/public`, `/api/search`, `/api/discussions`
 
 ---
 
-## Projects
+## Static & Setup (server.py)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/projects` | List active projects |
-| GET | `/api/projects?include_archived=1` | List including archived |
-| GET | `/api/projects/{slug}` | Project detail + task stats |
-| POST | `/api/projects` | Create project |
-| PATCH | `/api/projects/{slug}` | Update project |
-| DELETE | `/api/projects/{slug}` | Archive (soft delete) |
-| POST | `/api/projects/{slug}/restore` | Unarchive |
+### `GET /`
+Serves the SPA (`index.html`). All client-side routing via `#hash`.
 
-**Create project:**
-```json
-{
-  "name": "Marketing",
-  "icon": "📊",
-  "color": "#3b82f6",
-  "description": "Content & distribution",
-  "statuses": [
-    {"key": "backlog", "label": "Backlog", "color": "#6b7280"},
-    {"key": "draft", "label": "Draft", "color": "#f59e0b"},
-    {"key": "review", "label": "Review", "color": "#8b5cf6"},
-    {"key": "published", "label": "Published", "color": "#22c55e"}
-  ]
-}
-```
+### `GET /api/health`
+Health check. Returns version, schema version, uptime, and status.
 
----
+### `POST /api/setup`
+First-run setup (always public). Creates initial project + admin key.
+Returns the raw API key exactly once.
 
-## Tasks
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/projects/{slug}/tasks` | Tasks in project |
-| GET | `/api/projects/{slug}/tasks?status=review` | Filter by status |
-| GET | `/api/projects/{slug}/tasks?assignee=cto` | Filter by agent |
-| POST | `/api/projects/{slug}/tasks` | Create task |
-| GET | `/api/tasks/{id}` | Get single task |
-| PATCH | `/api/tasks/{id}` | Update task |
-| DELETE | `/api/tasks/{id}` | Delete task |
-| GET | `/api/tasks?project=all` | Cross-project all tasks |
-| GET | `/api/tasks?project=all&status=review` | Cross-project filtered |
-
-**Create task:**
-```json
-{
-  "title": "Write launch email",
-  "description": "Draft email for product launch",
-  "status": "proposed",
-  "priority": "high",
-  "assignee": "kai",
-  "tags": ["email", "launch"],
-  "due_date": "2026-05-01",
-  "created_by": "agent:kai",
-  "parent_id": "abc12345"
-}
-```
-
-> `parent_id` is optional — links this as a subtask of another task.
-
-**Get subtasks:**
-```
-GET /api/tasks/{parent_id}/children
-```
-
-**HITL — Owner approve/reject:**
-```json
-// Approve
-PATCH /api/tasks/{id} {"status": "todo", "comment": "Approved."}
-// Reject
-PATCH /api/tasks/{id} {"status": "rejected", "comment": "Not this week."}
-```
-
----
-
-## Pages (Documents)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/projects/{slug}/pages` | Page tree (nested) |
-| POST | `/api/projects/{slug}/pages` | Create page |
-| PATCH | `/api/pages/{id}` | Update page content |
-| DELETE | `/api/pages/{id}` | Delete page |
-| POST | `/api/pages/{id}/move` | Move page (parent/position) |
-
----
-
-## Agents
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/agents` | List all agents |
-| GET | `/api/agents/{id}` | Get single agent |
-| POST | `/api/agents` | Register agent |
-| PATCH | `/api/agents/{id}` | Update agent profile |
-| GET | `/api/agents/{id}/workload` | Agent's task statistics |
-
-**Register agent:**
-```json
-{
-  "id": "my-agent-id",
-  "name": "My Agent",
-  "role": "Content Writer",
-  "avatar": "✍️",
-  "color": "#f59e0b"
-}
-```
-
-**Workload response:**
-```json
-{
-  "agent_id": "cto",
-  "agent_name": "CTO",
-  "total": 5,
-  "completed": 2,
-  "by_status": {"todo": 1, "in_progress": 2, "review": 1, "done": 2},
-  "active_projects": [{"id": "...", "name": "Hermes Fleet", "slug": "hermes-fleet"}]
-}
-```
-
----
-
-## Comments
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tasks/{id}/comments` | Comments on task |
-| POST | `/api/tasks/{id}/comments` | Add comment to task |
-| GET | `/api/pages/{id}/comments` | Comments on page |
-| POST | `/api/pages/{id}/comments` | Add comment to page |
-
-**⚠️ NOTE:** Comments are **nested** under their target, NOT at `/api/comments`.
-```json
-POST /api/tasks/{task_id}/comments
-{"author": "cto", "content": "Ready for review."}
-```
+### `GET /api/setup`
+Check if setup has been completed. Returns `{ "setup_done": true/false }`.
 
 ---
 
 ## Activity
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/activity` | Recent activity (all projects) |
-| GET | `/api/activity?project={slug}` | Activity for specific project |
+Activity feed — recent actions across all projects, with optional filtering.
+
+### `GET /api/activity` 🔒
+
+Return recent activity entries, optionally filtered.
+Query params:
+limit       — max rows to return (default 50, max 200)
+offset      — skip N rows (default 0)
+project     — filter by project slug
+actor       — filter by actor id
+target_type — filter by target type (task, page, comment, project, discussion)
+action      — filter by action (create, update, delete, etc.)
+since       — ISO timestamp lower bound (e.g. 2024-01-01T00:00:00Z)
+until       — ISO timestamp upper bound
 
 ---
 
-## Search (FTS5)
+### `GET /api/activity/stats` 🔒
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/search?q={query}` | Search tasks + pages |
-| GET | `/api/search?q={query}&project={slug}` | Search within project |
-
----
-
-## Stats
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/stats` | Cross-project summary |
+Return activity statistics summary.
+Query params:
+days — lookback period in days (default 7, max 90)
 
 ---
 
-## Export / Import
+## Agents
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/export` | Export entire DB as JSON |
-| GET | `/api/export?project={slug}` | Export single project |
-| POST | `/api/import` | Import from JSON export |
+Agent management — register agents, view profiles, check workload.
 
-**Import behavior:**
-- Agents: upsert by `id`
-- Projects: upsert by `slug` (metadata-only; tasks/pages appended)
-- Tasks/Pages: always created new with fresh IDs
-- Comments: always created new with remapped references
+### `GET /api/agents` 🔒
 
 ---
 
-## Health Check
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Server health + maintenance status |
-
-Response: `{"status": "ok", "version": "1.2.0-dev", "maintenance": false}` (or `"status": "maintenance"` when enabled)
+### `POST /api/agents` 🔒
 
 ---
 
-## Auth Keys (API Key Management)
+### `GET /api/agents/{id}` 🔒
 
-All routes require auth (even with `public_read=true`).
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/auth/keys` | List all keys (hashed) |
-| POST | `/api/auth/keys` | Create key (raw shown once) |
-| PATCH | `/api/auth/keys/{id}` | Update label, deactivate/activate |
-| DELETE | `/api/auth/keys/{id}` | Delete key (blocks last active) |
+---
 
-**Create:** `POST /api/auth/keys {"label": "my-key"}` → `{"id": "...", "key": "ab_xxx...", "warning": "..."}`
+### `PATCH /api/agents/{id}` 🔒
 
-**Deactivate:** `PATCH /api/auth/keys/{id} {"deactivate": true, "grace_minutes": 5}` — key works for 5 more minutes
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
 
-**Activate:** `PATCH /api/auth/keys/{id} {"is_active": true}`
+---
+
+### `GET /api/agents/{id}/workload` 🔒
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+## Analytics
+
+KPI engine — completion rates, burndown, trends, agent performance cards.
+
+### `GET /api/analytics/kpi` 🔒
+
+Get KPI summary metrics.
+Query params:
+agent_id — filter by specific agent
+days     — lookback period (default 7, max 90)
+period   — 'daily' or 'weekly' (default 'daily')
+
+---
+
+### `GET /api/analytics/kpi/{agent_id}` 🔒
+
+Get KPI data for a specific agent.
+Path params:
+agent_id — agent ID
+Query params:
+days   — lookback period (default 7, max 90)
+
+**Path parameters:**
+- `agent_id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `GET /api/analytics/trends` 🔒
+
+Get trend data over time.
+Query params:
+metric — metric name (success_rate, tasks_completed, activity_count)
+days   — lookback period (default 30, max 90)
+agent_id — optional agent filter
+
+---
+
+### `GET /api/analytics/agents` 🔒
+
+Get performance cards for all agents.
+Query params:
+days — lookback period for KPI calculation (default 7)
+
+---
+
+### `GET /api/analytics/export` 🔒
+
+Export analytics data as JSON or CSV.
+Query params:
+format — 'json' or 'csv' (default 'json')
+days   — lookback period (default 7)
+type   — 'kpi' or 'activity' (default 'kpi')
+
+---
+
+### `POST /api/analytics/recompute` 🔒
+
+Trigger immediate KPI recomputation.
+Useful after bulk imports or sample data generation.
+Requires authentication.
+
+---
+
+## Auth Keys
+
+API key management — create, list, update, delete keys. Multi-key rotation support.
+
+### `GET /api/auth/keys` 🔒
+
+List all API keys. Raw keys are never returned.
+
+---
+
+### `POST /api/auth/keys` 🔒
+
+Create a new API key. Returns the raw key exactly once.
+
+---
+
+### `PATCH /api/auth/keys/{id}` 🔒
+
+Update a key's label or deactivate it with optional grace period.
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `DELETE /api/auth/keys/{id}` 🔒
+
+Permanently delete an API key. Cannot be undone.
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+## Comments
+
+Comments on tasks and pages. Supports both `task` and `page` target types.
+
+### `GET /api/tasks/{id}/comments` 🔓
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `POST /api/tasks/{id}/comments` 🔒
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `GET /api/pages/{id}/comments` 🔓
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `POST /api/pages/{id}/comments` 🔒
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
 
 ---
 
 ## Discussions
 
-Multi-round discussion/review system for agent collaboration and decision-making.
+Multi-round discussions with feedback, verdicts, and consensus tracking.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/discussions` | List discussions (filter: `?status=open`, `?target_type=task`, `?target_id={id}`) |
-| GET | `/api/discussions/{id}` | Get discussion detail + all feedback |
-| POST | `/api/discussions` | Create discussion |
-| PATCH | `/api/discussions/{id}` | Update discussion (status, title, round, context, leader, participants) |
-| DELETE | `/api/discussions/{id}` | Delete discussion + all feedback |
-| POST | `/api/discussions/{id}/feedback` | Add/update participant feedback |
-| GET | `/api/discussions/{id}/summary` | Verdict summary per round + consensus status |
+### `GET /api/discussions` 🔓
 
-**Create discussion:**
-```json
-{
-  "title": "Auth Module Architecture Review",
-  "target_type": "task",
-  "target_id": "abc12345",
-  "max_rounds": 3,
-  "context": "We need to decide between JWT and session-based auth...",
-  "leader": "cto",
-  "participants": ["zeko", "bad-sector"],
-  "created_by": "agent:cto"
-}
-```
-
-**Add feedback:**
-```json
-POST /api/discussions/{id}/feedback
-{
-  "participant": "zeko",
-  "role": "Security Reviewer",
-  "verdict": "conditional",
-  "content": "JWT is good but we need refresh token rotation. See section 3.",
-  "round": 1
-}
-```
-
-> `verdict` values: `approve`, `conditional`, `reject`, or `""` (no verdict yet)
-> `round` is optional — defaults to the discussion's `current_round`
-
-**Close discussion:**
-```json
-PATCH /api/discussions/{id} {"status": "closed"}
-```
-
-**Summary response:**
-```json
-{
-  "discussion_id": "...",
-  "title": "Auth Module Architecture Review",
-  "status": "open",
-  "current_round": 2,
-  "max_rounds": 3,
-  "rounds": {
-    "1": {
-      "participants": [...],
-      "verdicts": {"approve": 1, "conditional": 1, "reject": 0, "": 0}
-    }
-  },
-  "consensus": "approved_with_conditions",
-  "total_feedback": 4
-}
-```
-
-> `consensus` values: `approved`, `rejected`, `approved_with_conditions`, `in_progress`, `no_feedback`
-
-**Discussion status lifecycle:**
-```
-open → consensus  (all approve)
-open → closed     (manually closed by leader)
-```
+List discussions, optionally filtered.
+Query params:
+target_type — filter by target type (task, page, project)
+target_id   — filter by target ID
+status      — filter by status (open, closed, consensus)
+limit       — max rows (default 50, max 200)
+offset      — skip N rows (default 0)
 
 ---
 
-## Error Codes
+### `GET /api/discussions/{id}` 🔓
 
-| Code | HTTP | Meaning |
-|------|------|---------|
-| `NOT_FOUND` | 404 | Resource doesn't exist |
-| `UNAUTHORIZED` | 401 | Missing/invalid API key |
-| `FORBIDDEN` | 403 | Agent can't modify owner-only resources |
-| `VALIDATION_ERROR` | 400 | Invalid request body |
-| `SLUG_EXISTS` | 409 | Project slug already taken |
-| `DB_ERROR` | 500 | Database operation failed |
-| `MAINTENANCE` | 503 | Server in maintenance mode |
-| `LAST_KEY` | 409 | Cannot delete last active API key |
+Get a single discussion with all feedback ordered by round.
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `POST /api/discussions` 🔒
+
+Create a new discussion.
+Body:
+title        — discussion title (required)
+target_type  — optional (task, page, project)
+target_id    — optional
+max_rounds   — optional (default 5)
+created_by   — optional (auto-detected from X-Actor header)
+
+---
+
+### `PATCH /api/discussions/{id}` 🔒
+
+Update a discussion.
+Body (any combination):
+title   — new title
+status  — open, closed, consensus
+current_round — advance to next round
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `DELETE /api/discussions/{id}` 🔒
+
+Delete a discussion and all its feedback.
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `POST /api/discussions/{id}/feedback` 🔒
+
+Add feedback for a discussion round.
+Body:
+participant — participant name/ID (required)
+role        — optional role description
+verdict     — approve, conditional, reject, or empty
+content     — feedback text (required)
+round       — optional round number (defaults to current_round)
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `GET /api/discussions/{id}/summary` 🔓
+
+Get aggregated verdict summary for a discussion.
+Returns per-round verdict counts and final consensus status.
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+## Export
+
+Export/import — full database backup as JSON, import from export.
+
+### `GET /api/export` 🔓
+
+Export the entire database (or a single project) as JSON.
+
+---
+
+### `POST /api/import` 🔒
+
+Import data from a JSON export.
+Body: {"data": {...export format...}}
+Projects: upsert by slug.
+Tasks: always create new (generate new IDs).
+Pages: always create new (generate new IDs, remap parent_id).
+Agents: upsert by id.
+Comments: always create new (remap target_id for tasks/pages).
+
+---
+
+## Pages
+
+Page CRUD — create, list, update, delete, move pages. Supports standalone pages (no project).
+
+### `GET /api/pages` 🔓
+
+Return all pages grouped by project, for the global docs view.
+Unauthenticated: only public projects with public pages.
+Authenticated: show everything (respecting archived filter).
+
+---
+
+### `POST /api/pages` 🔒
+
+Create a page without a project (project_id = NULL).
+Requires authentication.
+
+---
+
+### `GET /api/projects/{slug}/pages` 🔓
+
+**Path parameters:**
+- `slug` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `POST /api/projects/{slug}/pages` 🔒
+
+**Path parameters:**
+- `slug` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `PATCH /api/pages/{id}` 🔒
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `DELETE /api/pages/{id}` 🔒
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `POST /api/pages/{id}/move` 🔒
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+## Projects
+
+Project CRUD — create, list, update, delete, archive/restore projects.
+
+### `GET /api/projects` 🔓
+
+---
+
+### `GET /api/projects/{slug}` 🔓
+
+**Path parameters:**
+- `slug` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `POST /api/projects` 🔒
+
+---
+
+### `PATCH /api/projects/{slug}` 🔒
+
+**Path parameters:**
+- `slug` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `DELETE /api/projects/{slug}` 🔒
+
+**Path parameters:**
+- `slug` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `POST /api/projects/{slug}/restore` 🔒
+
+**Path parameters:**
+- `slug` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `GET /api/stats` 🔓
+
+---
+
+### `POST /api/setup` 🔒
+
+---
+
+## Public Stats
+
+Public-safe aggregated stats — no sensitive data, respects visibility.
+
+### `GET /api/stats/public` 🔓
+
+Public-safe stats: only aggregated counts, no sensitive data.
+Returns:
+agents:          [{name, done, in_progress, proposed}]
+projects:        [{name, slug, icon, total, done, completion_pct}]
+status_totals:   {todo: N, proposed: N, in_progress: N, review: N, done: N}
+recent_activity: {last_7_days: N, last_30_days: N}
+
+---
+
+## Search
+
+Full-text search across tasks and pages using SQLite FTS5.
+
+### `GET /api/search` 🔓
+
+Full-text search across tasks and pages using FTS5.
+Query params:
+q       — search query (required)
+project — filter by project slug (optional)
+type    — "task" or "page" to restrict search scope (optional)
+limit   — max results per type (default 20, max 100)
+
+---
+
+## Tasks
+
+Task CRUD — create, list, update, delete tasks within projects. Supports parent-child (subtasks).
+
+### `GET /api/projects/{slug}/tasks` 🔓
+
+**Path parameters:**
+- `slug` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `POST /api/projects/{slug}/tasks` 🔒
+
+**Path parameters:**
+- `slug` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `PATCH /api/tasks/{id}` 🔒
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `DELETE /api/tasks/{id}` 🔒
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `GET /api/tasks` 🔓
+
+---
+
+### `GET /api/tasks/{id}` 🔓
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+### `GET /api/tasks/{id}/children` 🔓
+
+**Path parameters:**
+- `id` — resource identifier (16-char hex ID or slug)
+
+---
+
+## Webhook Task
+
+Agent webhook — agents POST task status updates in real-time.
+
+### `POST /api/webhook/task-update` 🔒
+
+Receive task status update from an agent.
+
+---
+
