@@ -827,12 +827,13 @@ async function renderDocsHub(app, slug){
         <span>${p.icon||'📋'}</span>${esc(p.name)}<span style="font-size:11px;color:var(--t2)">${roots.length}</span>
       </div>`;
     if(isActive){
-      const _treeHtml = (nodes, d) => nodes.map(p => {
-        const kids = childrenOf[p.id] || [];
+      const projSlug = p.slug; // project slug captured in outer scope
+      const _treeHtml = (nodes, d) => nodes.map(pg => {
+        const kids = childrenOf[pg.id] || [];
         const hasKids = kids.length > 0;
         const exp = d < 1 ? '▾' : (hasKids ? '▸' : '');
-        return `<div class="tree-item" data-id="${p.id}" style="padding-left:${8+d*16}px" onclick="loadPageReadonly('${p.id}','${p.slug}',_roCachedPages)">
-          <span class="toggle">${exp}</span><span class="page-icon">📄</span><span class="page-title">${esc(p.title)}</span>
+        return `<div class="tree-item" data-id="${pg.id}" style="padding-left:${8+d*16}px" onclick="loadPageReadonly('${pg.id}','${projSlug}',_roCachedPages)">
+          <span class="toggle">${exp}</span><span class="page-icon">📄</span><span class="page-title">${esc(pg.title)}</span>
         </div>`;
       }).join('');
       h += _treeHtml(roots, 0);
