@@ -70,12 +70,13 @@ def list_all_pages(params, query, body, headers):
 
     # Visibility filter for unauthenticated requests
     proj_vis = "" if authed else "AND p.visibility = 'public'"
-    page_vis = "" if authed else "AND pg.visibility = 'public'"
+    page_vis_p = "" if authed else "AND p.visibility = 'public'"
+    page_vis_c = "" if authed else "AND c.visibility = 'public'"
 
     # Get all NON-ARCHIVED projects with their page counts
     projects = conn.execute(
         f"""SELECT p.id, p.slug, p.name, p.icon, p.color,
-                  (SELECT COUNT(*) FROM pages c WHERE c.project_id = p.id AND c.parent_id IS NULL {page_vis}) as root_page_count
+                  (SELECT COUNT(*) FROM pages c WHERE c.project_id = p.id AND c.parent_id IS NULL {page_vis_c}) as root_page_count
            FROM projects p
            WHERE p.is_archived = 0 {proj_vis}
            ORDER BY p.name ASC"""
@@ -90,7 +91,7 @@ def list_all_pages(params, query, body, headers):
             f"""SELECT p.*,
                       (SELECT COUNT(*) FROM pages c WHERE c.parent_id = p.id) as child_count
                FROM pages p
-               WHERE p.project_id = ? {page_vis}
+               WHERE p.project_id = ? {page_vis_p}
                ORDER BY p.parent_id IS NOT NULL, p.position ASC, p.created_at ASC""",
             (proj["id"],),
         ).fetchall()
@@ -110,7 +111,7 @@ def list_all_pages(params, query, body, headers):
         f"""SELECT p.*,
                   (SELECT COUNT(*) FROM pages c WHERE c.parent_id = p.id) as child_count
            FROM pages p
-           WHERE p.project_id IS NULL {page_vis}
+           WHERE p.project_id IS NULL {page_vis_p}
            ORDER BY p.parent_id IS NOT NULL, p.position ASC, p.created_at ASC"""
     ).fetchall()
     standalone_pages = [_page_row_to_dict(r) for r in standalone_rows]
