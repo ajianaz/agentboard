@@ -397,18 +397,18 @@ select{appearance:auto}
 <nav id="sidebar">
   <div class="sb-brand">Agent<span>Board</span></div>
   <div class="sb-search"><input id="global-search" placeholder="Search… ⌘K"></div>
-  <a href="#overview" class="sb-home-link">🏠 Home</a>
-  <a href="#public" id="sb-public">📊 Dashboard</a>
+  <a href="#overview" class="sb-home-link">🏠 Dashboard</a>
   <div class="sb-sec">Projects</div>
   <div id="sb-projects"></div>
   <div id="sb-add-proj"></div>
   <div class="sb-sec">System</div>
   <a href="#docs">📄 Docs</a>
   <a href="#discussions">💬 Discussions</a>
-  <a href="#analytics" id="sb-analytics">📊 Analytics</a>
   <a href="#activity" id="sb-activity">📋 Activity</a>
-  <a href="#agents" id="sb-agents">🤖 Agents</a>
   <a href="#settings" id="sb-settings">⚙️ Settings</a>
+  <!-- Hidden WIP features — accessible via direct URL -->
+  <a href="#analytics" id="sb-analytics" style="display:none">📊 Analytics</a>
+  <a href="#agents" id="sb-agents" style="display:none">🤖 Agents</a>
   <div class="sb-foot">
     <div id="sb-auth-row">
       <span id="sb-auth-icon" title="Click to manage API key">🔓</span>
@@ -680,8 +680,8 @@ function updateAuthBadge(){
   const btn=document.getElementById('sb-key-btn');
   const out=document.getElementById('sb-key-logout');
   const authed=isAuthenticated();
-  // Toggle visibility of auth-gated sidebar links
-  ['sb-analytics','sb-activity','sb-agents','sb-settings'].forEach(id=>{
+  // Toggle visibility of auth-gated sidebar links (exclude WIP-hidden: analytics, agents)
+  ['sb-activity','sb-settings'].forEach(id=>{
     const el=document.getElementById(id);
     if(el)el.style.display=authed?'':'none';
   });
@@ -779,7 +779,6 @@ function highlightSidebarLink(){
 function getRoute(){
   const h=location.hash||'#overview';
   if(h==='#overview')return{view:'overview'};
-  if(h==='#public')return{view:'public'};
   if(h.startsWith('#docs/')){const s=h.split('/')[1];return{view:'docs',slug:s}}
   if(h==='#docs')return{view:'docs'};
   if(h==='#analytics')return{view:'analytics'};
@@ -801,7 +800,6 @@ async function render(){
   document.getElementById('sidebar-overlay').classList.remove('open');
   switch(view){
     case'overview':if(!isAuthenticated()){await renderPublicDashboard(app)}else{await renderOverview(app)};break;
-    case'public':await renderPublicDashboard(app);break;
     case'board':await renderBoard(app,slug);break;
     case'docs':await renderDocsHub(app,slug);break;
     case'settings':if(slug)await renderProjectSettings(app,slug);else await renderSystemSettings(app);break;
