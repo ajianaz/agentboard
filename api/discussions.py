@@ -17,6 +17,7 @@ import json
 from db import get_db, gen_id
 from activity_logger import log_activity_event, get_actor_from_headers
 from api import router
+from webhook import on_discussion_created, on_discussion_feedback, on_discussion_closed
 
 
 def _discussion_row_to_dict(row) -> dict:
@@ -174,7 +175,10 @@ def create_discussion(params, query, body, headers):
     log_activity_event("discussion", discussion_id, "create", actor,
                        {"title": title, "target_type": data.get("target_type", "")})
 
-    return 201, _discussion_row_to_dict(row)
+    discussion_dict = _discussion_row_to_dict(row)
+    on_discussion_created(discussion_dict, actor)
+
+    return 201, discussion_dict
 
 
 @router.patch("/api/discussions/{id}")
@@ -232,7 +236,13 @@ def update_discussion(params, query, body, headers):
     conn.close()
 
     log_activity_event("discussion", discussion_id, "update", actor, data)
-    return 200, _discussion_row_to_dict(row)
+
+    discussion_dict = _discussion_row_to_dict(row)
+    # Fire webhook if discussion was closed or reached consensus
+    if "status" in data and data["status"] in ("closed", "consensus"):
+        on_discussion_closed(discussion_dict, actor)
+
+    return 200, discussion_dict
 
 
 @router.delete("/api/discussions/{id}")
@@ -330,7 +340,11 @@ def add_feedback(params, query, body, headers):
     ).fetchone()
     conn.close()
 
-    return 201, _feedback_row_to_dict(fb_row)
+    feedback_dict = _feedback_row_to_dict(fb_row)
+    discussion_dict = _discussion_row_to_dict(row)
+    on_discussion_feedback(discussion_dict, feedback_dict, participant)
+
+    return 201, feedback_dict
 
 
 @router.get("/api/discussions/{id}/summary")

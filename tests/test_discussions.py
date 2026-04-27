@@ -1,5 +1,6 @@
 """Tests for discussion system."""
 
+import json
 import os
 import sqlite3
 import sys
@@ -20,6 +21,19 @@ def db():
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(FULL_SCHEMA_SQL)
+    # Ensure v6 columns exist (added by ALTER TABLE in migration)
+    try:
+        conn.execute("ALTER TABLE discussions ADD COLUMN context TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    try:
+        conn.execute("ALTER TABLE discussions ADD COLUMN participants TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE discussions ADD COLUMN leader TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     return conn
 
 
@@ -77,3 +91,91 @@ class TestDiscussions:
         db.commit()
         row = db.execute("SELECT * FROM discussions WHERE id = ?", (disc_id,)).fetchone()
         assert row["status"] == "consensus"
+
+
+class TestDiscussionWebhooks:
+    """Test webhook helpers for discussion events."""
+
+    def _create_discussion(self, db, title="Webhook Test", participants=None, leader=""):
+        disc_id = gen_id()
+        parts_json = json.dumps(participants or []) if participants else "[]"
+        db.execute(
+            """INSERT INTO discussions (id, title, status, current_round, max_rounds,
+               created_by, created_at, updated_at, participants, leader)
+               VALUES (?, ?, 'open', 1, 3, 'tester', datetime('now'), datetime('now'), ?, ?)""",
+            (disc_id, title, parts_json, leader),
+        )
+        db.commit()
+        row = db.execute("SELECT * FROM discussions WHERE id = ?", (disc_id,)).fetchone()
+        return dict(row)
+
+    def test_on_discussion_created_notifies_participants(self, db):
+        """on_discussion_created should call notify_agent for each participant."""
+        from unittest.mock import patch
+        discussion = self._create_discussion(
+            db, participants=["alpha", "beta", "gamma"], leader="alpha"
+        )
+        with patch("webhook.notify_agent") as mock_notify:
+            from webhook import on_discussion_created
+            on_discussion_created(discussion, "alpha")
+            # Should notify beta and gamma (not alpha who is the creator)
+            assert mock_notify.call_count == 2
+            targets = {call.args[0] for call in mock_notify.call_args_list}
+            assert targets == {"beta", "gamma"}
+            # Check event type
+            for call in mock_notify.call_args_list:
+                assert call.args[1] == "discussion.created"
+
+    def test_on_discussion_feedback_notifies_leader(self, db):
+        """on_discussion_feedback should notify leader and other participants."""
+        from unittest.mock import patch
+        discussion = self._create_discussion(
+            db, participants=["alpha", "beta"], leader="alpha"
+        )
+        feedback = {"participant": "beta", "verdict": "approve", "content": "LGTM", "round": 1}
+        with patch("webhook.notify_agent") as mock_notify:
+            from webhook import on_discussion_feedback
+            on_discussion_feedback(discussion, feedback, "beta")
+            # Should notify alpha (leader) — not beta (the feedback author)
+            assert mock_notify.call_count == 1
+            assert mock_notify.call_args[0][0] == "alpha"
+            assert mock_notify.call_args[0][1] == "discussion.feedback"
+
+    def test_on_discussion_closed_notifies_all(self, db):
+        """on_discussion_closed should notify all participants."""
+        from unittest.mock import patch
+        discussion = self._create_discussion(
+            db, participants=["alpha", "beta", "gamma"], leader="alpha"
+        )
+        discussion["status"] = "consensus"
+        with patch("webhook.notify_agent") as mock_notify:
+            from webhook import on_discussion_closed
+            on_discussion_closed(discussion, "alpha")
+            # Should notify all participants (including closer)
+            assert mock_notify.call_count == 3
+            for call in mock_notify.call_args_list:
+                assert call.args[1] == "discussion.closed"
+
+    def test_on_discussion_created_dict_participants(self, db):
+        """Participants as list of dicts (id/name) should be handled."""
+        from unittest.mock import patch
+        discussion = self._create_discussion(
+            db,
+            participants=[{"id": "alpha"}, {"name": "beta"}],
+            leader="alpha",
+        )
+        with patch("webhook.notify_agent") as mock_notify:
+            from webhook import on_discussion_created
+            on_discussion_created(discussion, "some_other_agent")
+            targets = {call.args[0] for call in mock_notify.call_args_list}
+            assert "alpha" in targets
+            assert "beta" in targets
+
+    def test_on_discussion_created_no_participants(self, db):
+        """No crash when participants list is empty."""
+        from unittest.mock import patch
+        discussion = self._create_discussion(db, participants=[])
+        with patch("webhook.notify_agent") as mock_notify:
+            from webhook import on_discussion_created
+            on_discussion_created(discussion, "tester")
+            assert mock_notify.call_count == 0

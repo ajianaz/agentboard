@@ -1,6 +1,6 @@
 """AgentBoard — Webhook notification system.
 
-Sends async notifications to agent gateways when tasks change.
+Sends async notifications to agent gateways when tasks or discussions change.
 Uses Python stdlib only (urllib.request + threading).
 
 Events:
@@ -10,6 +10,9 @@ Events:
     task.comment    — comment added to task
     task.approved   — owner approved proposed task
     task.rejected   — owner rejected proposed task
+    discussion.created   — new discussion created with participants
+    discussion.feedback  — feedback submitted for a discussion round
+    discussion.closed    — discussion closed or reached consensus
 """
 
 import json
@@ -214,3 +217,105 @@ def on_task_comment(task: dict, comment_author: str, comment_text: str,
     assignee = task.get("assignee")
     if assignee and assignee != comment_author:
         notify_agent(assignee, "task.comment", payload)
+
+
+# ---------------------------------------------------------------------------
+# Discussion webhook helpers — call from discussion handlers
+# ---------------------------------------------------------------------------
+
+def on_discussion_created(discussion: dict, actor: str):
+    """Fire webhook to all participants when a new discussion is created."""
+    participants = discussion.get("participants", [])
+    if isinstance(participants, str):
+        try:
+            participants = json.loads(participants)
+        except (json.JSONDecodeError, ValueError):
+            participants = []
+
+    payload = {
+        "discussion_id": discussion["id"],
+        "title": discussion["title"],
+        "status": discussion.get("status", "open"),
+        "target_type": discussion.get("target_type", ""),
+        "target_id": discussion.get("target_id", ""),
+        "current_round": discussion.get("current_round", 1),
+        "max_rounds": discussion.get("max_rounds", 5),
+        "created_by": actor,
+        "leader": discussion.get("leader", ""),
+        "context": (discussion.get("context", "") or "")[:500],
+    }
+
+    for participant in participants:
+        if isinstance(participant, str):
+            participant_id = participant.strip()
+        elif isinstance(participant, dict):
+            participant_id = participant.get("id", participant.get("name", "")).strip()
+        else:
+            continue
+        if participant_id and participant_id != actor:
+            notify_agent(participant_id, "discussion.created", payload)
+
+
+def on_discussion_feedback(discussion: dict, feedback: dict, actor: str):
+    """Fire webhook to discussion leader and other participants when feedback is submitted."""
+    participants = discussion.get("participants", [])
+    if isinstance(participants, str):
+        try:
+            participants = json.loads(participants)
+        except (json.JSONDecodeError, ValueError):
+            participants = []
+
+    payload = {
+        "discussion_id": discussion["id"],
+        "title": discussion["title"],
+        "current_round": discussion.get("current_round", 1),
+        "max_rounds": discussion.get("max_rounds", 5),
+        "feedback_by": feedback.get("participant", actor),
+        "feedback_verdict": feedback.get("verdict", ""),
+        "feedback_round": feedback.get("round", 1),
+        "feedback_preview": (feedback.get("content", "") or "")[:200],
+    }
+
+    # Notify leader
+    leader = discussion.get("leader", "")
+    if leader and leader != actor:
+        notify_agent(leader, "discussion.feedback", payload)
+
+    # Notify other participants (not the feedback author)
+    for participant in participants:
+        if isinstance(participant, str):
+            participant_id = participant.strip()
+        elif isinstance(participant, dict):
+            participant_id = participant.get("id", participant.get("name", "")).strip()
+        else:
+            continue
+        if participant_id and participant_id != actor and participant_id != leader:
+            notify_agent(participant_id, "discussion.feedback", payload)
+
+
+def on_discussion_closed(discussion: dict, actor: str):
+    """Fire webhook to all participants when a discussion is closed or reaches consensus."""
+    participants = discussion.get("participants", [])
+    if isinstance(participants, str):
+        try:
+            participants = json.loads(participants)
+        except (json.JSONDecodeError, ValueError):
+            participants = []
+
+    payload = {
+        "discussion_id": discussion["id"],
+        "title": discussion["title"],
+        "status": discussion.get("status", "closed"),
+        "current_round": discussion.get("current_round", 1),
+        "closed_by": actor,
+    }
+
+    for participant in participants:
+        if isinstance(participant, str):
+            participant_id = participant.strip()
+        elif isinstance(participant, dict):
+            participant_id = participant.get("id", participant.get("name", "")).strip()
+        else:
+            continue
+        if participant_id:
+            notify_agent(participant_id, "discussion.closed", payload)
