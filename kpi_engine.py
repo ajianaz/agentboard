@@ -126,24 +126,32 @@ class KPIEngine:
         because activity.actor may be 'owner' instead of the actual agent ID,
         and timestamp formats are inconsistent.
         """
+        # Normalize timestamps to UTC before DATE() comparison.
+        # SQLite DATE() ignores timezone offsets in ISO strings, so
+        # "2026-04-27T01:00:00+07:00" would be treated as Apr 27 instead of Apr 26 UTC.
+        # We use: strip offset, treat as-is (stored UTC), or convert +07:00 → UTC.
+        _date_utc = lambda ts: (
+            "DATE(SUBSTR(REPLACE(REPLACE(%s, '+07:00', ''), 'Z', ''), 1, 19))" % ts
+        )
+
         # Tasks assigned to this agent, created on this date
         tasks_created = conn.execute(
-            """SELECT COUNT(*) as c FROM tasks
-               WHERE assignee = ? AND DATE(created_at) = ?""",
+            f"""SELECT COUNT(*) as c FROM tasks
+               WHERE assignee = ? AND {_date_utc('created_at')} = ?""",
             (agent_id, date),
         ).fetchone()["c"]
 
         # Tasks completed (status = 'done') where completed_at is on this date
         tasks_completed = conn.execute(
-            """SELECT COUNT(*) as c FROM tasks
-               WHERE assignee = ? AND status = 'done' AND DATE(completed_at) = ?""",
+            f"""SELECT COUNT(*) as c FROM tasks
+               WHERE assignee = ? AND status = 'done' AND {_date_utc('completed_at')} = ?""",
             (agent_id, date),
         ).fetchone()["c"]
 
         # Tasks moved to review where updated_at changed to review on this date
         tasks_review = conn.execute(
-            """SELECT COUNT(*) as c FROM tasks
-               WHERE assignee = ? AND status = 'review' AND DATE(updated_at) = ?""",
+            f"""SELECT COUNT(*) as c FROM tasks
+               WHERE assignee = ? AND status = 'review' AND {_date_utc('updated_at')} = ?""",
             (agent_id, date),
         ).fetchone()["c"]
 

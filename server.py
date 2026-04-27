@@ -229,13 +229,13 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", content_type)
-        # HTML files: no-cache (always serve latest for SPA updates)
-        # Other assets: cache for 1 hour
+        # HTML files: short cache (2 min) — SPA updates frequent during dev
+        # Other assets: cache for 15 minutes
         if filepath.suffix == ".html":
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Cache-Control", "public, max-age=120, must-revalidate")
             self.send_header("ETag", f'"{VERSION}"')
         else:
-            self.send_header("Cache-Control", "public, max-age=3600")
+            self.send_header("Cache-Control", "public, max-age=900")
         self.end_headers()
         self.wfile.write(filepath.read_bytes())
 

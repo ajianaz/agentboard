@@ -1252,7 +1252,7 @@ async function toggleMaintenance(enable){
 
 // ── Helpers ──
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-function fmtTime(t){if(!t)return'';const d=new Date(t+'Z');const now=new Date();const diff=Math.floor((now-d)/1000);if(diff<60)return'just now';if(diff<3600)return Math.floor(diff/60)+'m ago';if(diff<86400)return Math.floor(diff/3600)+'h ago';return t.slice(0,10)}
+function fmtTime(t){if(!t)return'';let d=new Date(t);if(isNaN(d))d=new Date(t.replace(' ','T')+'Z');const now=new Date();const diff=Math.floor((now-d)/1000);if(diff<60)return'just now';if(diff<3600)return Math.floor(diff/60)+'m ago';if(diff<86400)return Math.floor(diff/3600)+'h ago';return t.slice(0,10)}
 const timeAgo=fmtTime;
 function writeBtn(html){return isAuthenticated()?html:''}
 
