@@ -82,11 +82,11 @@ jobs:
           echo "OK: No requirements files"
       - name: Verify server starts
         run: |
-          AGENTBOARD_API_KEY=ci-test-key python3 server.py &
+          AGENTBOARD_API_KEY=*** python3 server.py &
           SERVER_PID=$!
           sleep 2
           kill -0 $SERVER_PID 2>/dev/null && echo "OK: Server started" || (echo "FAIL: Server crashed" && exit 1)
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8765/api/setup)
-          echo "Setup endpoint: $STATUS"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8765/api/health)
+          echo "Health endpoint: $STATUS"
           kill $SERVER_PID 2>/dev/null
-          test "$STATUS" = "200" || test "$STATUS" = "400"
+          test "$STATUS" = "200"
