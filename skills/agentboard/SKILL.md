@@ -30,7 +30,7 @@ description: AgentBoard — standalone multi-project task board for agent fleet 
 | `AGENTS.md` | **Single source of truth** — full API reference, schema, conventions |
 | `onboard.py` | Fleet onboard script — registers agents, creates starter projects |
 | `skills/agentboard/SKILL.md` | This file — quick reference hub |
-| `skills/agentboard/references/api_reference.md` | All 40+ endpoints with auth table |
+| `skills/agentboard/references/api_reference.md` | All 55 endpoints documented with auth indicators |
 | `skills/agentboard/references/client.py` | **Python client wrapper** — `from client import Board` |
 | `skills/agentboard/references/workflows.md` | Common agent workflows (9 patterns) |
 | `skills/agentboard/references/pitfalls.md` | Gotchas, edge cases, troubleshooting (14 items) |

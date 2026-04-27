@@ -24,7 +24,7 @@ python server.py
 # Open http://localhost:8765
 ```
 
-First run creates `agentboard.db` with default schema (v6), imports legacy API key, starts KPI engine, and runs auto-cleanup.
+First run creates `agentboard.db` with current schema (v7), imports legacy API key, starts KPI engine, and runs auto-cleanup.
 
 **CLI flags** (optional, override everything):
 ```bash
@@ -52,7 +52,7 @@ curl -H "Authorization: Bearer $KEY" http://localhost:8765/api/stats
 | File | Purpose |
 |------|---------|
 | [`skills/agentboard/SKILL.md`](skills/agentboard/SKILL.md) | Hub — triggers, quick reference, rules |
-| [`skills/agentboard/references/api_reference.md`](skills/agentboard/references/api_reference.md) | All 31 endpoints documented |
+| [`skills/agentboard/references/api_reference.md`](skills/agentboard/references/api_reference.md) | All 55 endpoints documented |
 | [`skills/agentboard/references/code_examples.md`](skills/agentboard/references/code_examples.md) | Python & curl snippets |
 | [`skills/agentboard/references/workflows.md`](skills/agentboard/references/workflows.md) | HITL, reporting, backup workflows |
 | [`skills/agentboard/references/pitfalls.md`](skills/agentboard/references/pitfalls.md) | Gotchas and troubleshooting |
@@ -107,7 +107,7 @@ The skill is self-contained — no installation, no dependencies. Just read `SKI
 agentboard/
 ├── server.py              # Entry point, HTTP server, routing
 ├── config.py              # Configuration loader (agentboard.toml, tomllib)
-├── db.py                  # SQLite schema v5, migrations, WAL mode, retention
+├── db.py                  # SQLite schema v7, migrations, WAL mode, retention
 ├── auth.py                # API key auth, session management
 ├── kpi_engine.py          # Background KPI computation engine
 ├── activity_logger.py     # Auto-logging middleware for write operations
@@ -448,7 +448,7 @@ CREATE INDEX idx_feedback_participant ON discussion_feedback(discussion_id, part
 ```
 
 
-### API Keys (multi-key auth, schema v3)
+### API Keys (multi-key auth, introduced schema v3)
 
 ```sql
 CREATE TABLE api_keys (
