@@ -75,7 +75,7 @@ def list_all_pages(params, query, body, headers):
 
     # Get all NON-ARCHIVED projects with their page counts
     projects = conn.execute(
-        f"""SELECT p.id, p.slug, p.name, p.icon, p.color,
+        f"""SELECT p.id, p.slug, p.name, p.icon, p.color, p.visibility,
                   (SELECT COUNT(*) FROM pages c WHERE c.project_id = p.id AND c.parent_id IS NULL {page_vis_c}) as root_page_count
            FROM projects p
            WHERE p.is_archived = 0 {proj_vis}
