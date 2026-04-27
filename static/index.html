@@ -255,6 +255,35 @@ select{appearance:auto}
   .panel{width:100%}
   .docs-tree{width:200px}
   .stats-bar{grid-template-columns:repeat(2,1fr)}
+  .agent-cards{grid-template-columns:1fr}
+  .agent-card-stats{grid-template-columns:repeat(3,1fr)}
+  /* Header: stack vertically on mobile */
+  .kb-header{flex-direction:column;align-items:stretch;padding:12px 16px;gap:8px}
+  .kb-header h2{font-size:16px;margin:0}
+  .kb-filters{flex-wrap:wrap}
+  .kb-filters select,.kb-filters input{flex:1;min-width:0}
+  .kb-header .btn{flex-shrink:0}
+  /* Board: adjust height for mobile header */
+  .kb-board{height:calc(100vh - 110px);padding:8px}
+  /* Panel: higher z-index so it's above sidebar */
+  .panel-bg{z-index:80}
+  .panel{z-index:81}
+  /* Modal: above panel */
+  .modal-bg{z-index:90}
+  .modal{z-index:91}
+  /* Toast: above everything */
+  #toast-c{z-index:100}
+  /* Settings / form pages */
+  .settings-wrap,.proj-settings-wrap{padding:0 16px 24px!important;max-width:100%!important}
+  .form-group .field-row{flex-direction:column}
+  .form-group .field-row>div{width:100%}
+  /* Discussion detail */
+  .disc-detail{padding:16px!important}
+  .disc-detail .disc-actions{flex-wrap:wrap}
+  /* Overview project grid */
+  .proj-grid{grid-template-columns:1fr}
+  /* Activity items */
+  .act-item{flex-direction:column;gap:4px}
 }
 
 /* Analytics */
@@ -295,12 +324,6 @@ select{appearance:auto}
 .tab-bar button{padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--t2);font-size:13px;font-weight:500;cursor:pointer;transition:color .15s,border-color .15s}
 .tab-bar button:hover{color:var(--t1)}
 .tab-bar button.active{color:var(--ac);border-bottom-color:var(--ac)}
-
-/* Mobile responsive for new views */
-@media(max-width:768px){
-  .agent-cards{grid-template-columns:1fr}
-  .agent-card-stats{grid-template-columns:repeat(3,1fr)}
-}
 </style>
 </head>
 <body>
