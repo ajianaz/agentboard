@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-v1.2.0-green.svg)](https://github.com/ajianaz/agentboard/releases)
+[![Version](https://img.shields.io/badge/version-v1.5.0-green.svg)](https://github.com/ajianaz/agentboard/releases)
 
 ## What is it?
 
@@ -289,7 +289,19 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 
 **Note:** `/api/setup` is a one-time endpoint — it can only be called once after the database is created. To add additional projects afterward, use `POST /api/projects`.
 
-**Total: 52 endpoints** (including `/api/health`)
+### Webhook (1 endpoint)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/webhook/task` | Receive external task updates (HMAC-signed) |
+
+### Public Stats (1 endpoint)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/stats/public` | Anonymized board statistics |
+
+**Total: 54 endpoints** (including `/api/health`)
 
 ## Agent Integration
 
@@ -355,6 +367,7 @@ Each project can have its own status workflow:
 ┌─────────────────────────────────────┐
 │  server.py (Python stdlib)          │
 │  Routing + Auth + API handlers      │
+│  + HMAC webhook receiver            │
 └──────────────┬──────────────────────┘
                │ SQLite
                ▼
@@ -363,6 +376,7 @@ Each project can have its own status workflow:
 │  projects, tasks, pages, agents     │
 │  activity, kpi_daily, kpi_weekly    │
 │  discussions, discussion_feedback    │
+│  webhook_events                     │
 └─────────────────────────────────────┘
 ```
 
