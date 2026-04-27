@@ -68,11 +68,22 @@ def list_projects(params, query, body, headers):
 
     if include_archived:
         rows = conn.execute(
-            "SELECT * FROM projects ORDER BY position ASC, created_at ASC"
+            """SELECT p.*,
+                      COALESCE(t.cnt, 0) AS task_count
+               FROM projects p
+               LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM tasks GROUP BY project_id) t
+                    ON t.project_id = p.id
+               ORDER BY p.position ASC, p.created_at ASC"""
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM projects WHERE is_archived = 0 ORDER BY position ASC, created_at ASC"
+            """SELECT p.*,
+                      COALESCE(t.cnt, 0) AS task_count
+               FROM projects p
+               LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM tasks GROUP BY project_id) t
+                    ON t.project_id = p.id
+               WHERE p.is_archived = 0
+               ORDER BY p.position ASC, p.created_at ASC"""
         ).fetchall()
 
     projects = [_project_row_to_dict(r) for r in rows]
