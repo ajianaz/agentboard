@@ -298,6 +298,9 @@ def _run_migrations(conn: sqlite3.Connection, from_ver: int, to_ver: int):
         from_ver: Current schema version in the database.
         to_ver: Target schema version to migrate to.
     """
+    import logging
+    log = logging.getLogger("db.migration")
+
     migrations = {
         2: """ALTER TABLE tasks ADD COLUMN parent_id TEXT REFERENCES tasks(id);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);""",
@@ -392,12 +395,23 @@ ALTER TABLE discussions ADD COLUMN participants TEXT DEFAULT '';
 ALTER TABLE discussions ADD COLUMN leader TEXT DEFAULT '';""",
         7: """-- Schema v7: visibility (public/hidden) for projects, pages, discussions
 -- Standalone pages: project_id becomes nullable (requires table rebuild)
+-- CRITICAL: Must drop FTS5 table + triggers BEFORE renaming pages table,
+-- then recreate them AFTER. FTS5 content=pages creates a hard reference
+-- that blocks DROP TABLE pages.
+
+-- Step 1: Add visibility to projects and discussions
 ALTER TABLE projects ADD COLUMN visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden'));
 ALTER TABLE discussions ADD COLUMN visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden'));
 CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
 CREATE INDEX IF NOT EXISTS idx_discussions_visibility ON discussions(visibility);
 
--- Rebuild pages table to make project_id nullable and add visibility
+-- Step 2: Drop FTS5 virtual table and triggers that reference pages
+DROP TRIGGER IF EXISTS pages_ai;
+DROP TRIGGER IF EXISTS pages_ad;
+DROP TRIGGER IF EXISTS pages_au;
+DROP TABLE IF EXISTS pages_fts;
+
+-- Step 3: Rebuild pages table (nullable project_id + visibility column)
 CREATE TABLE IF NOT EXISTS _pages_new (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
@@ -419,12 +433,35 @@ DROP TABLE pages;
 ALTER TABLE _pages_new RENAME TO pages;
 CREATE INDEX IF NOT EXISTS idx_pages_project ON pages(project_id);
 CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_id);
-CREATE INDEX IF NOT EXISTS idx_pages_visibility ON pages(visibility);""",
+CREATE INDEX IF NOT EXISTS idx_pages_visibility ON pages(visibility);
+
+-- Step 4: Recreate FTS5 virtual table and triggers
+CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
+    title, content,
+    content=pages,
+    content_rowid=rowid,
+    tokenize='porter unicode61'
+);
+CREATE TRIGGER IF NOT EXISTS pages_ai AFTER INSERT ON pages BEGIN
+    INSERT INTO pages_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS pages_ad AFTER DELETE ON pages BEGIN
+    INSERT INTO pages_fts(pages_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages BEGIN
+    INSERT INTO pages_fts(pages_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
+    INSERT INTO pages_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+END;""",
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)
         if sql:
-            conn.executescript(sql)
+            try:
+                conn.executescript(sql)
+                log.info("Migration v%d applied successfully", ver)
+            except Exception as e:
+                log.error("Migration v%d FAILED: %s — database may be in inconsistent state", ver, e)
+                raise  # Crash on migration failure — better to fail fast than run with corrupt schema
         conn.execute("INSERT INTO _schema_version (version) VALUES (?)", (ver,))
     conn.commit()
 
