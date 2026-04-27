@@ -47,6 +47,7 @@ DEFAULTS = {
             "/api/tasks",
             "/api/pages",
             "/api/stats",
+            "/api/stats/public",
             "/api/search",
             "/api/discussions",
         ],
@@ -174,6 +175,10 @@ def load_config(cli_args: list | None = None) -> dict:
         config["auth"]["api_key_file"] = os.environ["AGENTBOARD_API_KEY_FILE"]
     if os.environ.get("AGENTBOARD_PUBLIC_READ"):
         config["auth"]["public_read"] = os.environ["AGENTBOARD_PUBLIC_READ"].lower() in ("true", "1", "yes")
+    if os.environ.get("AGENTBOARD_PUBLIC_ROUTES"):
+        config["auth"]["public_get_routes"] = [
+            r.strip() for r in os.environ["AGENTBOARD_PUBLIC_ROUTES"].split(",") if r.strip()
+        ]
     if os.environ.get("AGENTBOARD_MAINTENANCE"):
         config["server"]["maintenance"] = os.environ["AGENTBOARD_MAINTENANCE"].lower() in ("true", "1", "yes")
 

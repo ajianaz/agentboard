@@ -42,6 +42,23 @@ path = "agentboard.db"
 # Auto-generated on first run if file doesn't exist.
 api_key_file = ".api_key"
 
+# Allow unauthenticated GET access. Override with AGENTBOARD_PUBLIC_READ.
+public_read = true
+
+# Routes accessible without authentication (prefix matching).
+# Override with AGENTBOARD_PUBLIC_ROUTES (comma-separated).
+# Add "/api/stats/public" to expose the public analytics dashboard.
+public_get_routes = [
+    "/api/health",
+    "/api/projects",
+    "/api/tasks",
+    "/api/pages",
+    "/api/stats",
+    "/api/stats/public",
+    "/api/search",
+    "/api/discussions",
+]
+
 [features]
 # Enable data export (GET /api/export)
 export_enabled = true
