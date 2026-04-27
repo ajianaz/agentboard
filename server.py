@@ -19,7 +19,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
-VERSION = "1.3.3"
+VERSION = "1.3.4"
 
 # Local imports
 from config import get_config
@@ -118,15 +118,27 @@ class RequestHandler(BaseHTTPRequestHandler):
         # Public routes: root, /static/*, /api/setup (POST), GET /api/* (when public_read)
         # Protected routes: POST/PATCH/DELETE /api/* (always need Bearer token)
         # Always protected: /api/auth/* (key management)
+        #
+        # When public_read is enabled, only whitelisted GET routes are public.
+        # Everything else requires auth (including agents, activity, analytics, export).
+        PUBLIC_GET_PREFIXES = (
+            "/api/health",
+            "/api/projects",
+            "/api/tasks",
+            "/api/pages",
+            "/api/stats",
+            "/api/search",
+            "/api/discussions",
+        )
         needs_auth = True
         if path == "/api/setup":
             needs_auth = False
-        elif path.startswith("/api/auth/"):
-            needs_auth = True  # key management always requires auth
         elif method == "GET" and path.startswith("/api/"):
             cfg = get_config()
             if cfg.get("auth", {}).get("public_read", True):
-                needs_auth = False
+                # Only allow whitelisted public GET routes without auth
+                if any(path == p or path.startswith(p + "/") for p in PUBLIC_GET_PREFIXES):
+                    needs_auth = False
 
         if needs_auth:
             # Try multi-key auth first (schema v3), fallback to legacy single-key

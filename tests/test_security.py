@@ -139,12 +139,16 @@ class TestAuthBypass:
         assert c == 401, f"{method} {path} should be 401, got {c}: {d}"
 
     def test_read_without_auth(self, server):
-        """GET endpoints should be accessible without auth (public_read)."""
-        endpoints = ["/api/projects", "/api/agents", "/api/activity",
-                     "/api/health", "/api/analytics/kpi", "/api/discussions"]
-        for ep in endpoints:
+        """Whitelisted GET endpoints should be accessible without auth (public_read)."""
+        public_endpoints = ["/api/projects", "/api/tasks", "/api/pages",
+                            "/api/stats", "/api/discussions",
+                            "/api/health"]
+        for ep in public_endpoints:
             c, _ = api("GET", ep, auth=False)
             assert c == 200, f"GET {ep} should be 200 without auth, got {c}"
+        # Search needs a query param
+        c, _ = api("GET", "/api/search?q=test", auth=False)
+        assert c == 200, f"GET /api/search?q=test should be 200 without auth, got {c}"
 
     def test_wrong_auth_key(self, server):
         """Wrong API key should return 401."""
@@ -533,23 +537,23 @@ class TestInputValidation:
         assert c == 400, f"Invalid verdict should be 400, got {c}: {d}"
 
     def test_activity_limit_bounds(self, server):
-        """Activity endpoint should respect limit bounds."""
+        """Activity endpoint should respect limit bounds (auth required)."""
         # Very large limit
-        c, d = api("GET", "/api/activity?limit=999999", auth=False)
+        c, d = api("GET", "/api/activity?limit=999999", auth=True)
         assert c == 200
         # Should cap at some reasonable value
         assert len(d.get("activity", [])) < 999999
 
         # Negative limit
-        c, d = api("GET", "/api/activity?limit=-1", auth=False)
+        c, d = api("GET", "/api/activity?limit=-1", auth=True)
         assert c == 200
 
     def test_analytics_trends_days_bounds(self, server):
-        """Analytics trends should handle extreme day values."""
-        c, _ = api("GET", "/api/analytics/trends?days=0", auth=False)
+        """Analytics trends should handle extreme day values (auth required)."""
+        c, _ = api("GET", "/api/analytics/trends?days=0", auth=True)
         assert c in (200, 400), f"Zero days returned {c}"
 
-        c, _ = api("GET", "/api/analytics/trends?days=9999", auth=False)
+        c, _ = api("GET", "/api/analytics/trends?days=9999", auth=True)
         assert c in (200, 400), f"Huge days returned {c}"
 
     def test_nonexistent_task_returns_404(self, server):
