@@ -65,3 +65,19 @@ export_enabled = true
 
 # Enable data import (POST /api/import)
 import_enabled = true
+
+[webhooks]
+# Enable webhook notifications to agent gateways.
+# When true, AgentBoard sends async HTTP POST to agents on task/discussion events.
+enabled = true
+
+# Request timeout in seconds for webhook delivery.
+timeout = 10
+
+# Agent ID → Hermes gateway port mapping.
+# Must match the port each agent's Hermes gateway listens on.
+agent_ports = { zeko = 8648, cfo = 8645, cto = 8647, badsector = 8652, kai = 8650, sosmed = 8651, novelist = 8649 }
+
+# HMAC secret for webhook signature (X-Hub-Signature-256 header).
+# Falls back to WEBHOOK_SECRET from /opt/data/.env if not set here.
+# secret = "your-secret-here"

@@ -13,3 +13,5 @@ build/
 .env
 .DS_Store
 .git_askpass
+.sync_state.json
+agentboard.db.empty-backup

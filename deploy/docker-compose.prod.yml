@@ -28,6 +28,10 @@ services:
     volumes:
       - ${AGENTBOARD_DATA_DIR:-.}:/app
 
+    # Allow container to reach host services (agent gateways via host.docker.internal)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/')"]
       interval: 30s

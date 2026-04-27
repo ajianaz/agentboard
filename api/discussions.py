@@ -160,13 +160,18 @@ def create_discussion(params, query, body, headers):
     if not title:
         return 400, {"error": "Title is required", "code": "VALIDATION_ERROR"}
 
+    # Validate leader and participants when creating via coordinator
+    # (raw API calls without these fields create zombie discussions)
+    participants_raw = data.get("participants", [])
+    leader = data.get("leader", "").strip()
+    context = data.get("context", "").strip()
+
     conn = get_db()
     discussion_id = gen_id()
     actor = data.get("created_by") or get_actor_from_headers(headers)
     max_rounds = min(int(data.get("max_rounds", 5)), 20)
 
     # participants as JSON string
-    participants_raw = data.get("participants", [])
     participants_json = json.dumps(participants_raw) if isinstance(participants_raw, list) else str(participants_raw)
 
     conn.execute(
@@ -174,7 +179,7 @@ def create_discussion(params, query, body, headers):
            VALUES (?, ?, ?, ?, 'open', 1, ?, ?, datetime('now'), datetime('now'), ?, ?, ?)""",
         (discussion_id, title, data.get("target_type", ""), data.get("target_id", ""),
          max_rounds, actor,
-         data.get("context", ""), participants_json, data.get("leader", "")),
+         context, participants_json, leader),
     )
     conn.commit()
 
