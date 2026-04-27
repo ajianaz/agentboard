@@ -120,64 +120,84 @@ class KPIEngine:
 
     def _compute_agent_daily(self, conn: sqlite3.Connection, agent_id: str,
                               date: str, date_start: str, date_end: str):
-        """Compute and upsert daily KPI for a single agent."""
-        # Tasks created
+        """Compute and upsert daily KPI for a single agent.
+
+        Computes from the tasks table (ground truth) rather than activity log,
+        because activity.actor may be 'owner' instead of the actual agent ID,
+        and timestamp formats are inconsistent.
+        """
+        # Tasks assigned to this agent, created on this date
         tasks_created = conn.execute(
-            """SELECT COUNT(*) as c FROM activity
-               WHERE actor = ? AND action = 'created' AND target_type = 'task'
-               AND created_at >= ? AND created_at <= ?""",
-            (agent_id, date_start, date_end),
+            """SELECT COUNT(*) as c FROM tasks
+               WHERE assignee = ? AND DATE(created_at) = ?""",
+            (agent_id, date),
         ).fetchone()["c"]
 
-        # Tasks completed (status changed to done)
-        # Match detail JSON: {"from": "todo", "to": "done"}
+        # Tasks completed (status = 'done') where completed_at is on this date
         tasks_completed = conn.execute(
-            """SELECT COUNT(*) as c FROM activity
-               WHERE actor = ? AND target_type = 'task'
-               AND action = 'status changed'
-               AND detail LIKE ? AND created_at >= ? AND created_at <= ?""",
-            (agent_id, '%"to": "done"%', date_start, date_end),
+            """SELECT COUNT(*) as c FROM tasks
+               WHERE assignee = ? AND status = 'done' AND DATE(completed_at) = ?""",
+            (agent_id, date),
         ).fetchone()["c"]
 
-        # Tasks moved to review
+        # Tasks moved to review where updated_at changed to review on this date
         tasks_review = conn.execute(
-            """SELECT COUNT(*) as c FROM activity
-               WHERE actor = ? AND target_type = 'task'
-               AND action = 'status changed'
-               AND detail LIKE ? AND created_at >= ? AND created_at <= ?""",
-            (agent_id, '%"to": "review"%', date_start, date_end),
+            """SELECT COUNT(*) as c FROM tasks
+               WHERE assignee = ? AND status = 'review' AND DATE(updated_at) = ?""",
+            (agent_id, date),
         ).fetchone()["c"]
 
-        # Comments added
+        # Comments count from activity (this is activity-specific)
         comments = conn.execute(
             """SELECT COUNT(*) as c FROM activity
-               WHERE actor = ? AND action = 'created' AND target_type = 'comment'
+               WHERE target_type = 'comment'
                AND created_at >= ? AND created_at <= ?""",
-            (agent_id, date_start, date_end),
+            (date_start, date_end),
         ).fetchone()["c"]
 
-        # Total activity count
+        # Activity count for this agent — count from activity where actor matches
+        # or where the activity target references a task assigned to this agent.
+        # Avoid counting all 'owner' activity for every agent.
         activity_count = conn.execute(
             """SELECT COUNT(*) as c FROM activity
                WHERE actor = ?
                AND created_at >= ? AND created_at <= ?""",
             (agent_id, date_start, date_end),
         ).fetchone()["c"]
+        # Also count task-related activity by owner that references this agent's tasks
+        task_activity = conn.execute(
+            """SELECT COUNT(DISTINCT a.id) as c FROM activity a
+               JOIN tasks t ON a.target_id = t.id
+               WHERE a.actor = 'owner' AND t.assignee = ?
+               AND a.created_at >= ? AND a.created_at <= ?""",
+            (agent_id, date_start, date_end),
+        ).fetchone()["c"]
+        activity_count += task_activity
 
-        # Success rate: completed / max(created, 1) — how many created tasks got done
-        success_rate = round(tasks_completed / max(tasks_created, 1) * 100, 1) if tasks_created > 0 else 0.0
+        # Success rate: completed / max(total assigned, 1)
+        total_assigned = conn.execute(
+            """SELECT COUNT(*) as c FROM tasks
+               WHERE assignee = ? AND DATE(created_at) <= ?""",
+            (agent_id, date),
+        ).fetchone()["c"]
+        total_done = conn.execute(
+            """SELECT COUNT(*) as c FROM tasks
+               WHERE assignee = ? AND status = 'done'""",
+            (agent_id,),
+        ).fetchone()["c"]
+        success_rate = min(round(total_done / max(total_assigned, 1) * 100, 1), 100.0) if total_assigned > 0 else 0.0
 
-        # Average completion time (hours) — from task started_at to completed_at
+        # Average completion time (hours) — from started_at to completed_at
         avg_hours = conn.execute(
             """SELECT AVG(
-                (julianday(replace(completed_at, 'Z', '')) -
-                 julianday(replace(started_at, 'Z', ''))) * 24
+                (julianday(SUBSTR(REPLACE(completed_at, 'T', ' '), 1, 19)) -
+                 julianday(SUBSTR(REPLACE(started_at, 'T', ' '), 1, 19))) * 24
                ) as avg_h
                FROM tasks
                WHERE assignee = ? AND status = 'done'
-               AND completed_at >= ? AND completed_at <= ?
+               AND completed_at IS NOT NULL AND completed_at != ''
                AND started_at IS NOT NULL AND started_at != ''""",
-            (agent_id, date_start, date_end),
+            (agent_id,),
         ).fetchone()["avg_h"]
         avg_hours = round(avg_hours, 1) if avg_hours else 0.0
 
