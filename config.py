@@ -60,10 +60,14 @@ DEFAULTS = {
         "enabled": False,
         "timeout": 5,
         "agent_ports": {
-            "alpha": 8647,
-            "beta": 8648,
-            "gamma": 8649,
-        },
+                "zeko": 8648,
+                "cfo": 8645,
+                "cto": 8647,
+                "badsector": 8652,
+                "kai": 8650,
+                "sosmed": 8651,
+                "novelist": 8649,
+            },
     },
     "analytics": {
         "interval_seconds": 300,

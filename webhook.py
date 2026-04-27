@@ -15,8 +15,11 @@ Events:
     discussion.closed    — discussion closed or reached consensus
 """
 
+import hashlib
+import hmac
 import json
 import logging
+import os
 import threading
 import urllib.error
 import urllib.request
@@ -24,12 +27,16 @@ from config import get_config
 
 logger = logging.getLogger(__name__)
 
-# Agent ID → gateway port mapping (example/template)
+# Agent ID → gateway port mapping (Hermes fleet)
 # Override via config: webhooks.agent_ports in agentboard.toml
 DEFAULT_AGENT_PORTS = {
-    "alpha": 8647,
-    "beta": 8648,
-    "gamma": 8649,
+    "zeko": 8648,
+    "cfo": 8645,
+    "cto": 8647,
+    "badsector": 8652,
+    "kai": 8650,
+    "sosmed": 8651,
+    "novelist": 8649,
 }
 
 
@@ -38,6 +45,25 @@ def _get_agent_ports() -> dict:
     cfg = get_config()
     webhook_cfg = cfg.get("webhooks", {})
     return webhook_cfg.get("agent_ports", DEFAULT_AGENT_PORTS)
+
+
+def _get_webhook_secret() -> str:
+    """Get HMAC secret for webhook signing. From config or env fallback."""
+    cfg = get_config()
+    secret = cfg.get("webhooks", {}).get("secret", "")
+    if secret:
+        return secret
+    # Fallback: WEBHOOK_SECRET from /opt/data/.env
+    env_path = "/opt/data/.env"
+    if os.path.exists(env_path):
+        try:
+            with open(env_path) as f:
+                for line in f:
+                    if line.startswith("WEBHOOK_SECRET="):
+                        return line.strip().split("=", 1)[1]
+        except OSError:
+            pass
+    return ""
 
 
 def _is_webhook_enabled() -> bool:
@@ -102,6 +128,12 @@ def _send_webhook(agent_id: str, event: str, payload: dict):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+
+    # HMAC-SHA256 signature (matches Hermes gateway webhook verification)
+    secret = _get_webhook_secret()
+    if secret:
+        signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        req.add_header("X-Hub-Signature-256", f"sha256={signature}")
 
     timeout = _get_webhook_timeout()
 
