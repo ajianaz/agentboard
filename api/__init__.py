@@ -99,7 +99,7 @@ def is_authenticated(headers: dict) -> bool:
 # from api import projects, tasks, pages, agents, comments, activity, search
 _ROUTE_MODULES = [
     "projects", "tasks", "pages", "agents", "comments", "activity", "search", "export",
-    "auth_keys", "analytics", "discussions",
+    "auth_keys", "analytics", "discussions", "public_stats", "webhook_task",
 ]
 for _mod_name in _ROUTE_MODULES:
     try:

@@ -119,25 +119,18 @@ class RequestHandler(BaseHTTPRequestHandler):
         # Protected routes: POST/PATCH/DELETE /api/* (always need Bearer token)
         # Always protected: /api/auth/* (key management)
         #
-        # When public_read is enabled, only whitelisted GET routes are public.
-        # Everything else requires auth (including agents, activity, analytics, export).
-        PUBLIC_GET_PREFIXES = (
-            "/api/health",
-            "/api/projects",
-            "/api/tasks",
-            "/api/pages",
-            "/api/stats",
-            "/api/search",
-            "/api/discussions",
-        )
+        # Public GET routes are configurable via config.yaml:
+        #   auth.public_get_routes = ["/api/health", "/api/projects", ...]
+        # Default: projects, tasks, pages, stats, search, discussions
+        # To expose agents/analytics: add "/api/agents", "/api/analytics" to the list.
         needs_auth = True
         if path == "/api/setup":
             needs_auth = False
         elif method == "GET" and path.startswith("/api/"):
             cfg = get_config()
             if cfg.get("auth", {}).get("public_read", True):
-                # Only allow whitelisted public GET routes without auth
-                if any(path == p or path.startswith(p + "/") for p in PUBLIC_GET_PREFIXES):
+                public_routes = cfg.get("auth", {}).get("public_get_routes", [])
+                if any(path == p or path.startswith(p + "/") for p in public_routes):
                     needs_auth = False
 
         if needs_auth:

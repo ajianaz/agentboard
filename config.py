@@ -41,6 +41,15 @@ DEFAULTS = {
     "auth": {
         "api_key_file": ".api_key",
         "public_read": True,
+        "public_get_routes": [
+            "/api/health",
+            "/api/projects",
+            "/api/tasks",
+            "/api/pages",
+            "/api/stats",
+            "/api/search",
+            "/api/discussions",
+        ],
     },
     "features": {
         "export_enabled": True,

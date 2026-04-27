@@ -337,6 +337,57 @@ select{appearance:auto}
 .vis-toggle .vis-sw.on::after{transform:translateX(16px)}
 .vis-toggle .vis-label{font-size:13px;font-weight:500;color:var(--t0)}
 .vis-toggle .vis-sublabel{font-size:11px;color:var(--t2)}
+
+/* Public Dashboard */
+.pub-wrap{max-width:960px;margin:0 auto;padding:32px 24px}
+.pub-hero{text-align:center;margin-bottom:32px}
+.pub-hero h1{font-size:28px;font-weight:700;margin-bottom:4px}
+.pub-hero h1 span{color:var(--ac)}
+.pub-hero p{color:var(--t2);font-size:14px}
+.pub-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:28px}
+.pub-stat{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:14px;text-align:center}
+.pub-stat-val{font-size:24px;font-weight:700}
+.pub-stat-lbl{font-size:11px;color:var(--t2);margin-top:2px}
+.pub-section{margin-bottom:28px}
+.pub-section-title{font-size:15px;font-weight:600;margin-bottom:12px;color:var(--t0)}
+.pub-agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.pub-agent-card{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:14px}
+.pub-agent-name{font-weight:600;font-size:14px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.pub-agent-name .pub-agent-emoji{font-size:20px}
+.pub-agent-count{font-size:12px;color:var(--t1);margin-bottom:8px}
+.pub-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-bottom:8px}
+.pub-bar-fill{height:100%;border-radius:3px;transition:width .3s}
+.pub-badges{display:flex;gap:6px;flex-wrap:wrap}
+.pub-badge{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:500}
+.pub-badge-progress{background:rgba(59,130,246,.15);color:var(--ac)}
+.pub-badge-proposed{background:rgba(245,158,11,.15);color:var(--warn)}
+.pub-badge-done{background:rgba(34,197,94,.15);color:var(--ok)}
+.pub-project-list{display:flex;flex-direction:column;gap:8px}
+.pub-project-item{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:14px}
+.pub-project-hdr{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.pub-project-icon{font-size:18px}
+.pub-project-name{font-weight:600;font-size:14px;flex:1}
+.pub-project-pct{font-size:13px;font-weight:600}
+.pub-stacked-wrap{margin-bottom:8px}
+.pub-stacked-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--bg3)}
+.pub-stacked-seg{height:100%;transition:width .3s;min-width:0}
+.pub-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
+.pub-legend-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--t2)}
+.pub-legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.pub-activity{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r);padding:14px;display:flex;align-items:center;gap:12px}
+.pub-activity-icon{font-size:24px}
+.pub-activity-text{font-size:13px;color:var(--t1);line-height:1.6}
+.pub-activity-text strong{color:var(--t0)}
+.pub-auth-hint{text-align:center;margin-top:20px;padding:16px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r)}
+.pub-auth-hint p{font-size:13px;color:var(--t2)}
+.pub-auth-hint a{font-weight:600}
+.pub-empty{text-align:center;padding:32px;color:var(--t2);font-size:13px}
+@media(max-width:768px){
+  .pub-wrap{padding:20px 16px}
+  .pub-hero h1{font-size:22px}
+  .pub-agent-grid{grid-template-columns:1fr}
+  .pub-stats{grid-template-columns:repeat(2,1fr)}
+}
 </style>
 </head>
 <body>
@@ -347,6 +398,7 @@ select{appearance:auto}
   <div class="sb-brand">Agent<span>Board</span></div>
   <div class="sb-search"><input id="global-search" placeholder="Search… ⌘K"></div>
   <a href="#overview" class="sb-home-link">🏠 Home</a>
+  <a href="#public" id="sb-public">📊 Dashboard</a>
   <div class="sb-sec">Projects</div>
   <div id="sb-projects"></div>
   <div id="sb-add-proj"></div>
@@ -727,6 +779,7 @@ function highlightSidebarLink(){
 function getRoute(){
   const h=location.hash||'#overview';
   if(h==='#overview')return{view:'overview'};
+  if(h==='#public')return{view:'public'};
   if(h.startsWith('#docs/')){const s=h.split('/')[1];return{view:'docs',slug:s}}
   if(h==='#docs')return{view:'docs'};
   if(h==='#analytics')return{view:'analytics'};
@@ -747,7 +800,8 @@ async function render(){
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-overlay').classList.remove('open');
   switch(view){
-    case'overview':await renderOverview(app);break;
+    case'overview':if(!isAuthenticated()){await renderPublicDashboard(app)}else{await renderOverview(app)};break;
+    case'public':await renderPublicDashboard(app);break;
     case'board':await renderBoard(app,slug);break;
     case'docs':await renderDocsHub(app,slug);break;
     case'settings':if(slug)await renderProjectSettings(app,slug);else await renderSystemSettings(app);break;
@@ -1303,6 +1357,91 @@ async function toggleMaintenance(enable){
   // No API toggle exists — this prevents accidental lockout and ensures the change
   // is persistent across restarts. See architecture decision in PR #60.
   toast('Maintenance mode is controlled via config (TOML or AGENTBOARD_MAINTENANCE env). Restart server to apply changes.','info');
+}
+
+// ── Public Dashboard (unauthenticated visitors) ──
+async function renderPublicDashboard(app){
+  const data=await api('GET','/api/stats/public');
+  if(!data){app.innerHTML='<div class="empty"><div class="empty-icon">📊</div><h3>Unable to load dashboard</h3><p>The server may be starting up or unavailable</p></div>';return}
+  const agents=data.agents||[];
+  const projects=data.projects||[];
+  const st=data.status_totals||{};
+  const act=data.recent_activity||{};
+  const total=st.total||1;
+  let h=`<div class="pub-wrap">`;
+  // Hero
+  h+=`<div class="pub-hero"><h1>Agent<span>Board</span></h1><p>Team Dashboard — Public Overview</p></div>`;
+  // Quick stats
+  h+=`<div class="pub-stats">`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ac)">${st.total||0}</div><div class="pub-stat-lbl">Total Tasks</div></div>`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ok)">${st.done||0}</div><div class="pub-stat-lbl">Done</div></div>`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ac)">${st.in_progress||0}</div><div class="pub-stat-lbl">In Progress</div></div>`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--warn)">${st.proposed||0}</div><div class="pub-stat-lbl">Proposed</div></div>`;
+  h+=`</div>`;
+  // Status Breakdown — horizontal stacked bar
+  const segments=[
+    {key:'done',label:'Done',color:'var(--ok)',count:st.done||0},
+    {key:'in_progress',label:'In Progress',color:'var(--ac)',count:st.in_progress||0},
+    {key:'review',label:'Review',color:'var(--rev)',count:st.review||0},
+    {key:'todo',label:'To Do',color:'#6b7280',count:st.todo||0},
+    {key:'proposed',label:'Proposed',color:'var(--warn)',count:st.proposed||0}
+  ];
+  h+=`<div class="pub-section"><div class="pub-section-title">Status Breakdown</div>`;
+  h+=`<div class="pub-stacked-wrap"><div class="pub-stacked-bar">`;
+  segments.forEach(s=>{
+    const pct=(s.count/total*100).toFixed(1);
+    if(s.count>0)h+=`<div class="pub-stacked-seg" style="width:${pct}%;background:${s.color}" title="${s.label}: ${s.count}"></div>`;
+  });
+  h+=`</div><div class="pub-legend">`;
+  segments.forEach(s=>{
+    h+=`<div class="pub-legend-item"><div class="pub-legend-dot" style="background:${s.color}"></div>${s.label} (${s.count})</div>`;
+  });
+  h+=`</div></div></div>`;
+  // Agent Cards Grid
+  h+=`<div class="pub-section"><div class="pub-section-title">🤖 Agents (${agents.length})</div>`;
+  if(agents.length){
+    h+=`<div class="pub-agent-grid">`;
+    agents.forEach(a=>{
+      const pct=a.completion_pct||0;
+      const pctColor=pct>=70?'var(--ok)':pct>=40?'var(--warn)':'var(--err)';
+      h+=`<div class="pub-agent-card">`;
+      h+=`<div class="pub-agent-name"><span class="pub-agent-emoji">${esc(a.avatar||'🤖')}</span>${esc(a.name)}</div>`;
+      h+=`<div class="pub-agent-count">${a.done}/${a.total} tasks · <span style="color:${pctColor};font-weight:600">${pct}%</span></div>`;
+      h+=`<div class="pub-bar"><div class="pub-bar-fill" style="width:${pct}%;background:${pctColor}"></div></div>`;
+      h+=`<div class="pub-badges">`;
+      if(a.in_progress)h+=`<span class="pub-badge pub-badge-progress">🔄 ${a.in_progress} active</span>`;
+      if(a.proposed)h+=`<span class="pub-badge pub-badge-proposed">💡 ${a.proposed} proposed</span>`;
+      if(a.done)h+=`<span class="pub-badge pub-badge-done">✓ ${a.done} done</span>`;
+      h+=`</div></div>`;
+    });
+    h+=`</div>`;
+  }else{h+=`<div class="pub-empty">No agent data available</div>`}
+  h+=`</div>`;
+  // Project Progress
+  h+=`<div class="pub-section"><div class="pub-section-title">📂 Projects (${projects.length})</div>`;
+  if(projects.length){
+    h+=`<div class="pub-project-list">`;
+    projects.forEach(p=>{
+      const pct=p.completion_pct||0;
+      const pctColor=pct>=70?'var(--ok)':pct>=40?'var(--warn)':'var(--ac)';
+      h+=`<div class="pub-project-item">`;
+      h+=`<div class="pub-project-hdr"><span class="pub-project-icon">${p.icon||'📋'}</span><span class="pub-project-name">${esc(p.name)}</span><span class="pub-project-pct" style="color:${pctColor}">${pct}%</span></div>`;
+      h+=`<div class="pub-bar"><div class="pub-bar-fill" style="width:${pct}%;background:${pctColor}"></div></div>`;
+      h+=`<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--t2)"><span>${p.done}/${p.total} tasks</span></div>`;
+      h+=`</div>`;
+    });
+    h+=`</div>`;
+  }else{h+=`<div class="pub-empty">No project data available</div>`}
+  h+=`</div>`;
+  // Recent Activity
+  h+=`<div class="pub-section"><div class="pub-section-title">📊 Recent Activity</div>`;
+  h+=`<div class="pub-activity"><span class="pub-activity-icon">📈</span>`;
+  h+=`<div class="pub-activity-text"><strong>${act.last_7_days||0}</strong> actions in the last 7 days · <strong>${act.last_30_days||0}</strong> in the last 30 days</div>`;
+  h+=`</div></div>`;
+  // Auth hint
+  h+=`<div class="pub-auth-hint"><p>🔒 <a href="#" onclick="document.getElementById('sb-key-input').focus();document.getElementById('sb-key-input').scrollIntoView({behavior:'smooth',block:'center'});return false">Sign in with an API key</a> for full access to boards, agents, and analytics.</p></div>`;
+  h+=`</div>`;
+  app.innerHTML=h;
 }
 
 // ── Helpers ──
