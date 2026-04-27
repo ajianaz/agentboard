@@ -4,7 +4,40 @@ All notable changes to AgentBoard are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [1.3.0] - Unreleased
+## [1.5.0] - 2026-04-27
+
+### Added
+- **Visibility Model v2** — Per-page visibility control (public/private) in docs hub
+- **Standalone Webhook** — Direct delivery to AgentBoard without http_router relay, with HMAC-SHA256 signing
+- **Webhook Task Update** — `/api/webhook/task` endpoint for external activity logging
+- **Public Stats API** — `/api/stats/public` for anonymized board statistics
+- **Split Pending View** — Overview dashboard separates Todo and In Review counts
+- **Discussion Webhook Ports** — Configurable ports per discussion for multi-agent coordination
+- **Discussion Zombie Mitigation** — Auto-detection and cleanup of stalled discussions
+
+### Changed
+- **UI Refactor** — Merged Home + Dashboard into single Overview page
+- **Sidebar** — Analytics and Agents sections hidden from default sidebar
+- **PR #105 fixes** — Stale projSlug reference, hidden projects no longer leak in public stats
+
+### Fixed
+- Pages API visibility filter used wrong table alias (pg → p/c)
+- Migration v7 idempotent — skips duplicate column errors gracefully
+- Migration v7 — drops FTS before pages rebuild, adds error logging
+- Stats totals inconsistent — filter non-archived, add todo_tasks count
+
+## [1.4.0] - 2026-04-26
+
+### Added
+- **Standalone Tools** — `tools/client.py` for HTTP API client and `tools/discussion.py` for discussion management
+- **Agent Sync** — Hermes agent fleet integration via direct webhooks
+- **Public Readiness** — Repo cleaned for public cloning (no secrets, generic docs)
+
+### Changed
+- **Documentation** — Made repo generic (removed Hermes-specific references from public docs)
+- **Gitignore** — Added *.db, *.db-shm, *.db-wal, .api_key, .env to prevent secret leaks
+
+## [1.3.0] - 2026-04-25
 
 ### Added
 - **Analytics Engine** — KPI computation with configurable intervals (5min default), auto-cleanup of stale data
