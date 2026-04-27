@@ -62,11 +62,12 @@ def list_all_pages(params, query, body, headers):
     """Return all pages grouped by project, for the global docs view."""
     conn = get_db()
 
-    # Get all projects with their page counts
+    # Get all NON-ARCHIVED projects with their page counts
     projects = conn.execute(
         """SELECT p.id, p.slug, p.name, p.icon, p.color,
                   (SELECT COUNT(*) FROM pages c WHERE c.project_id = p.id AND c.parent_id IS NULL) as root_page_count
            FROM projects p
+           WHERE p.is_archived = 0
            ORDER BY p.name ASC"""
     ).fetchall()
 

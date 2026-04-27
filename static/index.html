@@ -788,12 +788,20 @@ async function createTask(slug){
 }
 
 // ── Docs Hub (standalone, cross-project, read-only) ──
+// Two modes:
+//   1. #docs          — all projects sidebar, read-only viewer
+//   2. #docs/{slug}   — filtered to one project, read-only viewer
 async function renderDocsHub(app, slug){
   const data = await api('GET', '/api/pages');
   if(!data) {app.innerHTML='';return}
   const groups = data.projects || [];
   const totalCount = groups.reduce((s,g)=>s+g.pages.length,0);
 
+  // Resolve slug: URL → or first project with pages
+  if(slug){
+    const exists = groups.find(g => g.project.slug === slug);
+    if(!exists) slug = null; // project archived or removed, reset
+  }
   if(!slug && groups.length > 0) slug = groups[0].project.slug;
 
   let h = `<div class="docs-layout" style="height:100vh">
@@ -801,6 +809,9 @@ async function renderDocsHub(app, slug){
       <div class="docs-tree-hdr"><h3>📄 All Docs</h3>
         <span style="font-size:11px;color:var(--t2)">${totalCount} pages</span>
       </div>`;
+
+  // Cache all pages for tree item clicks (avoids re-fetching)
+  _roCachedPages = groups.flatMap(g => g.pages);
 
   groups.forEach(g => {
     const p = g.project;
@@ -820,7 +831,7 @@ async function renderDocsHub(app, slug){
         const kids = childrenOf[p.id] || [];
         const hasKids = kids.length > 0;
         const exp = d < 1 ? '▾' : (hasKids ? '▸' : '');
-        return `<div class="tree-item" data-id="${p.id}" style="padding-left:${8+d*16}px" onclick="loadPageReadonly('${p.id}','${p.slug}')">
+        return `<div class="tree-item" data-id="${p.id}" style="padding-left:${8+d*16}px" onclick="loadPageReadonly('${p.id}','${p.slug}',_roCachedPages)">
           <span class="toggle">${exp}</span><span class="page-icon">📄</span><span class="page-title">${esc(p.title)}</span>
         </div>`;
       }).join('');
@@ -847,17 +858,25 @@ async function renderDocsHub(app, slug){
   if(slug){
     const group = groups.find(g => g.project.slug === slug);
     if(group && group.pages.length){
-      loadPageReadonly(group.pages[0].id, slug);
+      loadPageReadonly(group.pages[0].id, slug, group.pages);
     }
   }
 }
 
 let _roCurrentPageId = null;
-async function loadPageReadonly(id, slug){
+let _roCachedPages = null;
+async function loadPageReadonly(id, slug, cachedPages){
   _roCurrentPageId = id;
-  const data = await api('GET', '/api/projects/'+slug+'/pages');
-  if(!data) return;
-  const page = (data.pages||[]).find(p => p.id === id);
+  // Use cached pages from hub if available, otherwise fetch
+  let page = null;
+  if(cachedPages){
+    page = cachedPages.find(p => p.id === id);
+  }
+  if(!page){
+    const data = await api('GET', '/api/projects/'+slug+'/pages');
+    if(!data) return;
+    page = (data.pages||[]).find(p => p.id === id);
+  }
   if(!page) return;
   document.getElementById('de-title').value = page.title || '';
   document.getElementById('de-preview').innerHTML = renderMd(page.content || '');
