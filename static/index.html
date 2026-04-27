@@ -310,6 +310,7 @@ select{appearance:auto}
 <nav id="sidebar">
   <div class="sb-brand">Agent<span>Board</span></div>
   <div class="sb-search"><input id="global-search" placeholder="Search… ⌘K"></div>
+  <a href="#overview" class="sb-home-link">🏠 Home</a>
   <div class="sb-sec">Projects</div>
   <div id="sb-projects"></div>
   <div id="sb-add-proj"></div>
@@ -630,8 +631,7 @@ async function loadSidebar(){
   S.projects=data.projects||[];
   const el=document.getElementById('sb-projects');
   el.innerHTML=S.projects.map(p=>{
-    const active=location.hash===`#project/${p.slug}/board`||location.hash===`#project/${p.slug}/docs`||location.hash===`#project/${p.slug}/settings`||location.hash.startsWith('#docs');
-    return`<a href="#project/${p.slug}/board" class="${active?'active':''}"><span class="sb-proj-icon">${p.icon||'📋'}</span>${esc(p.name)}<span class="sb-count">${p.task_count||0}</span></a>`;
+    return`<a href="#project/${p.slug}/board"><span class="sb-proj-icon">${p.icon||'📋'}</span>${esc(p.name)}<span class="sb-count">${p.task_count||0}</span></a>`;
   }).join('');
   const addProj=document.getElementById('sb-add-proj');
   addProj.innerHTML=isAuthenticated()?'<a href="#" class="sb-add" id="add-proj-btn">+ New Project</a>':'';
@@ -642,6 +642,20 @@ async function loadSidebar(){
     <div class="form-group"><label>Description</label><textarea id="np-desc" rows="2" placeholder="What is this project about?"></textarea></div>
     <div class="form-group"><div class="field-row"><div><label>Icon</label><input class="icon-inp" id="np-icon" value="📋"></div><div><label>Color</label><input class="color-inp" id="np-color" type="color" value="#3b82f6"></div></div></div>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="createProject()">Create</button></div>`);
+  });
+  highlightSidebarLink();
+}
+
+function highlightSidebarLink(){
+  const hash=location.hash||'#overview';
+  document.querySelectorAll('#sidebar a').forEach(a=>{
+    a.classList.remove('active');
+    const href=a.getAttribute('href')||'';
+    if(href&&hash===href){a.classList.add('active')}
+    // Match project sub-routes (board/docs/settings)
+    if(href.startsWith('#project/')&&hash.startsWith(href.replace(/\/board$/,''))){a.classList.add('active')}
+    // Match #docs and #docs/{slug}
+    if(href==='#docs'&&hash.startsWith('#docs')){a.classList.add('active')}
   });
 }
 
