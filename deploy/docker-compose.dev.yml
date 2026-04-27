@@ -1,0 +1,50 @@
+# ── AgentBoard — Development/Staging ─────────────────────────
+#
+# Usage:
+#   1. Clone repo to separate directory: git clone ... agentboard-dev
+#   2. cd agentboard-dev && cp .env.example .env && edit .env
+#   3. docker compose -f deploy/docker-compose.dev.yml up -d
+#
+# Runs alongside prod on a different port/domain.
+# Use -p agentboard-dev to isolate Docker project name.
+#
+# Requires:
+#   - Traefik reverse proxy with "public-net" external network
+#   - DNS record for dev domain (e.g. dev.board.example.com)
+
+services:
+  agentboard-dev:
+    image: ghcr.io/ajianaz/agentboard:latest
+    container_name: agentboard-dev
+    restart: unless-stopped
+
+    environment:
+      AGENTBOARD_PORT: "8766"
+      AGENTBOARD_HOST: "0.0.0.0"
+      AGENTBOARD_PUBLIC_READ: "true"
+      TZ: "Asia/Jakarta"
+
+    # Dev bind mount — separate directory from prod
+    volumes:
+      - ${AGENTBOARD_DATA_DIR:-.}:/app
+
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8766/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    networks:
+      - ${TRAEFIK_NETWORK:-public-net}
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.agentboard-dev.rule=Host(`${AGENTBOARD_DEV_DOMAIN:-dev.board.example.com}`)"
+      - "traefik.http.routers.agentboard-dev.entrypoints=websecure"
+      - "traefik.http.routers.agentboard-dev.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-myresolver}"
+      - "traefik.http.services.agentboard-dev.loadbalancer.server.port=8766"
+
+networks:
+  ${TRAEFIK_NETWORK:-public-net}:
+    external: true
