@@ -330,6 +330,53 @@ def main():
     print("Server started. Press Ctrl+C to stop.")
 
     server = HTTPServer((host, port), RequestHandler)
+
+    # Auto-reload: watch .py files and restart process on change.
+    # Static files (HTML/CSS/JS) are already served from disk on each request,
+    # so only Python source changes need a process restart.
+    import os, threading, hashlib
+
+    def _watcher():
+        """Background thread: detect .py file changes and trigger reload."""
+        watched_dirs = [BASE_DIR / "api", BASE_DIR / "static"]
+        watched_files = [BASE_DIR / "server.py", BASE_DIR / "db.py",
+                         BASE_DIR / "kpi_engine.py", BASE_DIR / "config.py"]
+        snapshots = {}  # path -> mtime
+
+        def _snapshot():
+            for d in watched_dirs:
+                if d.is_dir():
+                    for f in d.rglob("*.py"):
+                        snapshots[str(f)] = f.stat().st_mtime
+            for f in watched_files:
+                if f.exists():
+                    snapshots[str(f)] = f.stat().st_mtime
+
+        _snapshot()
+        print("  Reload   : ENABLED (watching *.py)")
+
+        while True:
+            try:
+                threading.Event().wait(3)  # poll every 3 seconds
+                changed = False
+                for path, old_mtime in list(snapshots.items()):
+                    try:
+                        new_mtime = os.stat(path).st_mtime
+                        if new_mtime != old_mtime:
+                            changed = True
+                            break
+                    except FileNotFoundError:
+                        continue
+                if changed:
+                    import sys
+                    print(f"\n[reload] Source changed, restarting...")
+                    os.execv(sys.executable, sys.argv)
+            except Exception:
+                pass  # ignore errors during shutdown
+
+    watcher = threading.Thread(target=_watcher, daemon=True)
+    watcher.start()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
