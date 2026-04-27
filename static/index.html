@@ -272,6 +272,7 @@ select{appearance:auto}
 .verdict-approve{color:var(--ok)}
 .verdict-conditional{color:var(--warn)}
 .verdict-reject{color:var(--err)}
+.verdict-comment{color:var(--ac)}
 
 /* Activity enhanced */
 .attn-enhanced .attn-filters{display:flex;gap:8px;align-items:center;padding:0 24px 12px;flex-wrap:wrap}
@@ -1422,60 +1423,66 @@ async function showDiscussion(id){
   if(!d) return;
   const summary = await api('GET', `/api/discussions/${id}/summary`);
 
+  // Status badge config
+  const statusMap = {
+    open: {label:'Open', bg:'var(--ac)'},
+    closed: {label:'Closed', bg:'var(--t2)'},
+    consensus: {label:'Consensus', bg:'var(--ok)'},
+  };
+  const st = statusMap[d.status] || {label:d.status, bg:'var(--t2)'};
+
+  // Verdict config
+  const verdictMap = {
+    approve: {icon:'✅', label:'Approve', cls:'verdict-approve'},
+    reject: {icon:'❌', label:'Reject', cls:'verdict-reject'},
+    comment: {icon:'💬', label:'Comment', cls:'verdict-comment'},
+  };
+
+  // Global verdict summary
+  const allFb = d.feedback || [];
+  const totalApprove = allFb.filter(f => f.verdict === 'approve').length;
+  const totalReject = allFb.filter(f => f.verdict === 'reject').length;
+  const totalComment = allFb.filter(f => f.verdict === 'comment' || !f.verdict).length;
+
   // Group feedback by round
   const rounds = {};
-  (d.feedback||[]).forEach(fb => {
-    if(!rounds[fb.round]) rounds[fb.round] = [];
-    rounds[fb.round].push(fb);
+  allFb.forEach(fb => {
+    const r = fb.round || 1;
+    if(!rounds[r]) rounds[r] = [];
+    rounds[r].push(fb);
   });
 
-  // Build per-round HTML
-  let roundsHtml = '';
+  // Build per-round timeline HTML
+  let timelineHtml = '';
   for(let r = 1; r <= d.max_rounds; r++){
     const fbList = rounds[r] || [];
     const hasFeedback = fbList.length > 0;
-    const isCurrentRound = r === d.current_round;
+    const isCurrent = r === d.current_round;
     const isFuture = r > d.current_round;
 
-    // Verdict tally for this round
-    const approves = fbList.filter(f => f.verdict === 'approve').length;
-    const conditionals = fbList.filter(f => f.verdict === 'conditional').length;
-    const rejects = fbList.filter(f => f.verdict === 'reject').length;
-    const noVerdict = fbList.filter(f => !f.verdict).length;
-    const total = fbList.length;
-
-    let verdictBar = '';
-    if(hasFeedback){
-      verdictBar = `<div style="display:flex;gap:4px;align-items:center;margin:6px 0 8px;font-size:11px">
-        ${approves ? `<span style="color:var(--ok)">✅ ${approves}</span>` : ''}
-        ${conditionals ? `<span style="color:var(--warn)">⚠️ ${conditionals}</span>` : ''}
-        ${rejects ? `<span style="color:var(--err)">❌ ${rejects}</span>` : ''}
-        ${noVerdict ? `<span style="color:var(--t2)">💬 ${noVerdict}</span>` : ''}
-        <span style="margin-left:auto;color:var(--t2)">${total} participant${total!==1?'s':''}</span>
-      </div>`;
-    }
-
-    roundsHtml += `<div class="disc-round" style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:12px;font-weight:700;color:${isCurrentRound?'var(--ac)':isFuture?'var(--t2)':'var(--t0)'}">
-          ${isFuture?'⬜':isCurrentRound?'🔵':'✅'} Round ${r}
+    timelineHtml += `<div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:700;color:${isCurrent?'var(--ac)':isFuture?'var(--t2)':'var(--t0)'}">
+          ${isFuture?'⬜':isCurrent?'🔵':'✅'} Round ${r}
         </span>
-        ${isCurrentRound ? '<span style="font-size:10px;background:var(--ac);color:#fff;padding:1px 6px;border-radius:8px">CURRENT</span>' : ''}
+        ${isCurrent ? '<span style="font-size:10px;background:var(--ac);color:#fff;padding:1px 6px;border-radius:8px">CURRENT</span>' : ''}
         ${isFuture ? '<span style="font-size:10px;color:var(--t2)">PENDING</span>' : ''}
+        ${hasFeedback ? `<span style="font-size:11px;color:var(--t2);margin-left:auto">${fbList.length} response${fbList.length!==1?'s':''}</span>` : ''}
       </div>
-      ${verdictBar}
-      ${fbList.map(fb => `
-        <div class="disc-feedback-item">
+      ${fbList.map(fb => {
+        const v = verdictMap[fb.verdict] || verdictMap.comment;
+        return `<div class="disc-feedback-item">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <span style="font-weight:600;font-size:13px">${esc(fb.participant)}</span>
             ${fb.role ? `<span style="font-size:11px;color:var(--t2)">${esc(fb.role)}</span>` : ''}
-            ${fb.verdict ? `<span class="verdict-${fb.verdict}" style="font-size:11px;font-weight:600;text-transform:uppercase">${fb.verdict}</span>` : ''}
+            <span class="${v.cls}" style="font-size:11px;font-weight:600;text-transform:uppercase">${v.icon} ${v.label}</span>
+            ${fb.word_count ? `<span style="font-size:10px;color:var(--t2)">${fb.word_count} words</span>` : ''}
             <span style="margin-left:auto;font-size:10px;color:var(--t2)">${timeAgo(fb.created_at)}</span>
           </div>
-          <div style="font-size:13px;color:var(--t1);white-space:pre-wrap">${esc(fb.content)}</div>
-        </div>
-      `).join('')}
-      ${!hasFeedback && !isFuture ? '<div style="font-size:12px;color:var(--t2);padding:8px 0">No feedback submitted for this round</div>' : ''}
+          <div style="font-size:13px;color:var(--t1);line-height:1.6">${md(fb.content||'')}</div>
+        </div>`;
+      }).join('')}
+      ${!hasFeedback && !isFuture ? '<div style="font-size:12px;color:var(--t2);padding:8px 0">No feedback submitted</div>' : ''}
     </div>`;
   }
 
@@ -1494,12 +1501,12 @@ async function showDiscussion(id){
     const roundsCompleted = Object.keys(rounds).filter(r => rounds[r].length > 0).length;
 
     outcomeHtml = `<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:14px;margin-bottom:16px">
-      <div style="font-size:12px;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;color:var(--t2)">Final Outcome</div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;color:var(--t2)">Outcome</div>
       <div style="font-size:16px;font-weight:700;color:${c.color};margin-bottom:6px">${c.label}</div>
       <div style="font-size:12px;color:var(--t2);display:flex;gap:16px">
-        <span>📊 ${totalFb} feedback total</span>
-        <span>🔄 ${roundsCompleted}/${d.max_rounds} rounds completed</span>
-        <span>📍 Round ${d.current_round} of ${d.max_rounds}</span>
+        <span>${totalFb} feedback total</span>
+        <span>${roundsCompleted}/${d.max_rounds} rounds completed</span>
+        <span>Round ${d.current_round} of ${d.max_rounds}</span>
       </div>
     </div>`;
   }
@@ -1508,29 +1515,61 @@ async function showDiscussion(id){
   document.getElementById('modal-bg').classList.add('open');
   modal.innerHTML = `
     <div style="max-width:750px;max-height:85vh;overflow-y:auto;padding:24px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <button class="btn btn-s btn-sm" onclick="closeModal()" style="margin-bottom:12px">\u2190 Back</button>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <h2 style="flex:1">${esc(d.title)}</h2>
-        <span class="disc-status" style="background:${d.status==='consensus'?'var(--ok)':d.status==='closed'?'var(--t2)':'var(--ac)'};color:#fff;padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600">${d.status}</span>
-        <button class="btn btn-s btn-sm" onclick="closeModal()">✕</button>
+        <span class="disc-status" style="background:${st.bg};color:#fff">${st.label}</span>
       </div>
-      <div style="font-size:12px;color:var(--t2);margin-bottom:16px">
-        Created by ${esc(d.created_by||'unknown')} · ${timeAgo(d.created_at)}
-        ${d.target_type ? ` · Linked to ${d.target_type} ${d.target_id||''}` : ''}
+      <div style="font-size:12px;color:var(--t2);margin-bottom:16px;display:flex;flex-wrap:wrap;gap:12px">
+        <span>Created by ${esc(d.created_by||'unknown')}</span>
+        <span>${timeAgo(d.created_at)}</span>
+        ${d.updated_at && d.updated_at !== d.created_at ? `<span>Updated ${timeAgo(d.updated_at)}</span>` : ''}
+        ${d.target_type ? `<span>Linked to ${esc(d.target_type)}${d.target_id ? ' '+esc(String(d.target_id)) : ''}</span>` : ''}
       </div>
+      ${allFb.length > 0 ? `<div class="stats-bar" style="padding:0 0 16px">
+        <div class="stat-card" style="padding:10px 14px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:var(--ok);font-size:16px">✅</span>
+            <span style="font-weight:600;font-size:18px;color:var(--ok)">${totalApprove}</span>
+            <span style="font-size:12px;color:var(--t2)">Approve</span>
+          </div>
+        </div>
+        <div class="stat-card" style="padding:10px 14px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:var(--err);font-size:16px">❌</span>
+            <span style="font-weight:600;font-size:18px;color:var(--err)">${totalReject}</span>
+            <span style="font-size:12px;color:var(--t2)">Reject</span>
+          </div>
+        </div>
+        <div class="stat-card" style="padding:10px 14px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:var(--ac);font-size:16px">💬</span>
+            <span style="font-weight:600;font-size:18px;color:var(--ac)">${totalComment}</span>
+            <span style="font-size:12px;color:var(--t2)">Comment</span>
+          </div>
+        </div>
+        <div class="stat-card" style="padding:10px 14px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:16px">📊</span>
+            <span style="font-weight:600;font-size:18px">${allFb.length}</span>
+            <span style="font-size:12px;color:var(--t2)">Total</span>
+          </div>
+        </div>
+      </div>` : ''}
       ${outcomeHtml}
       ${isAuthenticated() ? `
       <div style="margin-bottom:16px;padding:12px;background:var(--bg2);border-radius:var(--rs);border:1px solid var(--bd)">
         <div style="font-size:12px;font-weight:600;margin-bottom:8px">Add Feedback (Round ${d.current_round})</div>
         <div style="display:flex;gap:8px;margin-bottom:8px">
           <input id="fb-participant" placeholder="Your name" style="flex:1">
-          <select id="fb-verdict"><option value="">No verdict</option><option value="approve">✅ Approve</option><option value="conditional">⚠️ Conditional</option><option value="reject">❌ Reject</option></select>
+          <select id="fb-verdict"><option value="">No verdict</option><option value="approve">✅ Approve</option><option value="comment">💬 Comment</option><option value="reject">❌ Reject</option></select>
         </div>
         <textarea id="fb-content" placeholder="Your feedback..." rows="3" style="margin-bottom:8px"></textarea>
         <button class="btn btn-p btn-sm" onclick="submitFeedback('${d.id}')">Submit</button>
       </div>` : ''}
       <div style="border-top:1px solid var(--bd);padding-top:12px">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px">Rounds & Feedback</div>
-        ${roundsHtml || '<div style="color:var(--t2);font-size:13px">No feedback yet</div>'}
+        ${timelineHtml || '<div class="empty"><div class="empty-icon">💬</div><h3>No feedback yet</h3><p style="font-size:13px;color:var(--t2)">Waiting for participants to respond</p></div>'}
       </div>
     </div>`;
 }
