@@ -1,11 +1,12 @@
 """AgentBoard — Page CRUD, outline tree, and move endpoints.
 
 Endpoints:
-    GET    /api/projects/{slug}/pages   — flat list of pages (frontend builds tree)
-    POST   /api/projects/{slug}/pages   — create page
-    PATCH  /api/pages/{id}              — update page
-    DELETE /api/pages/{id}              — delete page (CASCADE deletes children)
-    POST   /api/pages/{id}/move         — move page (change parent/position)
+    GET    /api/pages                  — all pages across projects (grouped by project)
+    GET    /api/projects/{slug}/pages  — flat list of pages (frontend builds tree)
+    POST   /api/projects/{slug}/pages  — create page
+    PATCH  /api/pages/{id}             — update page
+    DELETE /api/pages/{id}             — delete page (CASCADE deletes children)
+    POST   /api/pages/{id}/move        — move page (change parent/position)
 """
 
 import json
@@ -50,6 +51,50 @@ def _log_activity(conn, project_id: str | None, target_type: str,
         (gen_id(), project_id, target_type, target_id, action, actor,
          json.dumps(detail or {})),
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/pages — all pages across projects (grouped by project)
+# ---------------------------------------------------------------------------
+
+@router.get("/api/pages")
+def list_all_pages(params, query, body, headers):
+    """Return all pages grouped by project, for the global docs view."""
+    conn = get_db()
+
+    # Get all projects with their page counts
+    projects = conn.execute(
+        """SELECT p.id, p.slug, p.name, p.icon, p.color,
+                  (SELECT COUNT(*) FROM pages c WHERE c.project_id = p.id AND c.parent_id IS NULL) as root_page_count
+           FROM projects p
+           ORDER BY p.name ASC"""
+    ).fetchall()
+
+    result = []
+    for proj in projects:
+        if proj["root_page_count"] == 0:
+            continue
+        # Fetch all pages for this project (tree-ready order)
+        rows = conn.execute(
+            """SELECT p.*,
+                      (SELECT COUNT(*) FROM pages c WHERE c.parent_id = p.id) as child_count
+               FROM pages p
+               WHERE p.project_id = ?
+               ORDER BY p.parent_id IS NOT NULL, p.position ASC, p.created_at ASC""",
+            (proj["id"],),
+        ).fetchall()
+        result.append({
+            "project": {
+                "slug": proj["slug"],
+                "name": proj["name"],
+                "icon": proj["icon"],
+                "color": proj["color"],
+            },
+            "pages": [_page_row_to_dict(r) for r in rows],
+        })
+
+    conn.close()
+    return 200, {"projects": result}
 
 
 # ---------------------------------------------------------------------------

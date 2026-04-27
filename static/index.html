@@ -301,6 +301,7 @@ select{appearance:auto}
   <div id="sb-projects"></div>
   <div id="sb-add-proj"></div>
   <div class="sb-sec">System</div>
+  <a href="#docs">📄 Docs</a>
   <a href="#analytics">📊 Analytics</a>
   <a href="#discussions">💬 Discussions</a>
   <a href="#activity">📋 Activity</a>
@@ -580,7 +581,7 @@ async function loadSidebar(){
   S.projects=data.projects||[];
   const el=document.getElementById('sb-projects');
   el.innerHTML=S.projects.map(p=>{
-    const active=location.hash===`#project/${p.slug}/board`||location.hash===`#project/${p.slug}/docs`||location.hash===`#project/${p.slug}/settings`;
+    const active=location.hash===`#project/${p.slug}/board`||location.hash===`#project/${p.slug}/docs`||location.hash===`#project/${p.slug}/settings`||location.hash.startsWith('#docs');
     return`<a href="#project/${p.slug}/board" class="${active?'active':''}"><span class="sb-proj-icon">${p.icon||'📋'}</span>${esc(p.name)}<span class="sb-count">${p.task_count||0}</span></a>`;
   }).join('');
   const addProj=document.getElementById('sb-add-proj');
@@ -599,6 +600,8 @@ async function loadSidebar(){
 function getRoute(){
   const h=location.hash||'#overview';
   if(h==='#overview')return{view:'overview'};
+  if(h.startsWith('#docs/')){const s=h.split('/')[1];return{view:'docs',slug:s}}
+  if(h==='#docs')return{view:'docs'};
   if(h==='#analytics')return{view:'analytics'};
   if(h==='#discussions')return{view:'discussions'};
   if(h==='#activity')return{view:'activity'};
@@ -619,7 +622,7 @@ async function render(){
   switch(view){
     case'overview':await renderOverview(app);break;
     case'board':await renderBoard(app,slug);break;
-    case'docs':await renderDocs(app,slug);break;
+    case'docs':await renderDocsHub(app,slug);break;
     case'settings':if(slug)await renderProjectSettings(app,slug);else await renderSystemSettings(app);break;
     case'agents':await renderAgents(app);break;
     case'analytics':await renderAnalytics(app);break;
@@ -784,7 +787,86 @@ async function createTask(slug){
   setTimeout(()=>render(),200);
 }
 
-// ── Documents ──
+// ── Docs Hub (standalone, cross-project, read-only) ──
+async function renderDocsHub(app, slug){
+  const data = await api('GET', '/api/pages');
+  if(!data) {app.innerHTML='';return}
+  const groups = data.projects || [];
+  const totalCount = groups.reduce((s,g)=>s+g.pages.length,0);
+
+  if(!slug && groups.length > 0) slug = groups[0].project.slug;
+
+  let h = `<div class="docs-layout" style="height:100vh">
+    <div class="docs-tree">
+      <div class="docs-tree-hdr"><h3>📄 All Docs</h3>
+        <span style="font-size:11px;color:var(--t2)">${totalCount} pages</span>
+      </div>`;
+
+  groups.forEach(g => {
+    const p = g.project;
+    const roots = g.pages.filter(pg => !pg.parent_id);
+    const childrenOf = {};
+    g.pages.filter(pg => pg.parent_id).forEach(pg => {
+      if(!childrenOf[pg.parent_id]) childrenOf[pg.parent_id] = [];
+      childrenOf[pg.parent_id].push(pg);
+    });
+    const isActive = slug === p.slug;
+    h += `<div class="docs-proj-group">
+      <div class="docs-proj-hdr" onclick="location.hash='#docs/${p.slug}'" style="cursor:pointer;padding:8px 12px;font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px;${isActive?'color:var(--ac)':''}">
+        <span>${p.icon||'📋'}</span>${esc(p.name)}<span style="font-size:11px;color:var(--t2)">${roots.length}</span>
+      </div>`;
+    if(isActive){
+      const _treeHtml = (nodes, d) => nodes.map(p => {
+        const kids = childrenOf[p.id] || [];
+        const hasKids = kids.length > 0;
+        const exp = d < 1 ? '▾' : (hasKids ? '▸' : '');
+        return `<div class="tree-item" data-id="${p.id}" style="padding-left:${8+d*16}px" onclick="loadPageReadonly('${p.id}','${p.slug}')">
+          <span class="toggle">${exp}</span><span class="page-icon">📄</span><span class="page-title">${esc(p.title)}</span>
+        </div>`;
+      }).join('');
+      h += _treeHtml(roots, 0);
+    }
+    h += `</div>`;
+  });
+
+  if(!groups.length){
+    h += `<div class="empty" style="padding:24px"><div class="empty-icon">📄</div><h3>No docs yet</h3><p>Create pages from any project to see them here</p></div>`;
+  }
+  h += `</div>`;
+  h += `<div class="docs-editor" id="docs-editor">
+    <div class="docs-editor-hdr">
+      <input id="de-title" value="" disabled style="opacity:.7">
+      <span style="font-size:11px;color:var(--t2)">📖 Read-only</span>
+    </div>
+    <div class="docs-editor-body">
+      <div class="docs-preview" id="de-preview" style="flex:1"></div>
+    </div>
+  </div></div>`;
+  app.innerHTML = h;
+
+  if(slug){
+    const group = groups.find(g => g.project.slug === slug);
+    if(group && group.pages.length){
+      loadPageReadonly(group.pages[0].id, slug);
+    }
+  }
+}
+
+let _roCurrentPageId = null;
+async function loadPageReadonly(id, slug){
+  _roCurrentPageId = id;
+  const data = await api('GET', '/api/projects/'+slug+'/pages');
+  if(!data) return;
+  const page = (data.pages||[]).find(p => p.id === id);
+  if(!page) return;
+  document.getElementById('de-title').value = page.title || '';
+  document.getElementById('de-preview').innerHTML = renderMd(page.content || '');
+  document.querySelectorAll('.tree-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+}
+
+// ── Documents (project-scoped, editable) ──
 async function renderDocs(app,slug){
   const[proj,pagesData]=await Promise.all([
     api('GET','/api/projects/'+slug),
@@ -1155,10 +1237,29 @@ function handleSearchClick(type,id,slug){
   else if(type==='page'&&slug)location.hash='#project/'+slug+'/docs';
 }
 
-// Auto-poll every 10s
-setInterval(()=>{
-  if(!S.taskPanelOpen)render();
-},10000);
+// ── View-aware polling ──
+// Docs/Settings/Analytics: never auto-poll (disruptive or unnecessary)
+// Board/Overview/Activity/Discussions/Agents: poll at longer intervals
+const POLL_CFG={
+  docs:false,settings:false,analytics:false,
+  board:30000,overview:30000,activity:30000,discussions:30000,agents:60000,
+};
+let _pollTimer=null,_lastView=null;
+function startViewPoll(){
+  if(_pollTimer){clearInterval(_pollTimer);_pollTimer=null}
+  const{view}=getRoute();
+  if(view===_lastView)return;
+  _lastView=view;
+  const ms=POLL_CFG[view];
+  if(!ms)return;
+  _pollTimer=setInterval(()=>{if(!S.taskPanelOpen)render()},ms);
+}
+// Patch render() to restart poll on view change
+const _origRender=render;
+render=async function(){
+  await _origRender();
+  startViewPoll();
+};
 
 // ── Export/Import ──
 async function exportProject(slug){
@@ -1299,33 +1400,107 @@ function renderDiscussionItem(d){
 async function showDiscussion(id){
   const d = await api('GET', `/api/discussions/${id}`);
   if(!d) return;
-  
-  const feedbackHtml = (d.feedback||[]).map(fb => `
-    <div class="disc-feedback-item">
+  const summary = await api('GET', `/api/discussions/${id}/summary`);
+
+  // Group feedback by round
+  const rounds = {};
+  (d.feedback||[]).forEach(fb => {
+    if(!rounds[fb.round]) rounds[fb.round] = [];
+    rounds[fb.round].push(fb);
+  });
+
+  // Build per-round HTML
+  let roundsHtml = '';
+  for(let r = 1; r <= d.max_rounds; r++){
+    const fbList = rounds[r] || [];
+    const hasFeedback = fbList.length > 0;
+    const isCurrentRound = r === d.current_round;
+    const isFuture = r > d.current_round;
+
+    // Verdict tally for this round
+    const approves = fbList.filter(f => f.verdict === 'approve').length;
+    const conditionals = fbList.filter(f => f.verdict === 'conditional').length;
+    const rejects = fbList.filter(f => f.verdict === 'reject').length;
+    const noVerdict = fbList.filter(f => !f.verdict).length;
+    const total = fbList.length;
+
+    let verdictBar = '';
+    if(hasFeedback){
+      verdictBar = `<div style="display:flex;gap:4px;align-items:center;margin:6px 0 8px;font-size:11px">
+        ${approves ? `<span style="color:var(--ok)">✅ ${approves}</span>` : ''}
+        ${conditionals ? `<span style="color:var(--warn)">⚠️ ${conditionals}</span>` : ''}
+        ${rejects ? `<span style="color:var(--err)">❌ ${rejects}</span>` : ''}
+        ${noVerdict ? `<span style="color:var(--t2)">💬 ${noVerdict}</span>` : ''}
+        <span style="margin-left:auto;color:var(--t2)">${total} participant${total!==1?'s':''}</span>
+      </div>`;
+    }
+
+    roundsHtml += `<div class="disc-round" style="margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-weight:600;font-size:13px">${esc(fb.participant)}</span>
-        <span style="font-size:11px;color:var(--t2)">${esc(fb.role||'')}</span>
-        <span style="margin-left:auto">R${fb.round}</span>
-        ${fb.verdict ? `<span class="verdict-${fb.verdict}" style="font-size:11px;font-weight:600;text-transform:uppercase">${fb.verdict}</span>` : ''}
+        <span style="font-size:12px;font-weight:700;color:${isCurrentRound?'var(--ac)':isFuture?'var(--t2)':'var(--t0)'}">
+          ${isFuture?'⬜':isCurrentRound?'🔵':'✅'} Round ${r}
+        </span>
+        ${isCurrentRound ? '<span style="font-size:10px;background:var(--ac);color:#fff;padding:1px 6px;border-radius:8px">CURRENT</span>' : ''}
+        ${isFuture ? '<span style="font-size:10px;color:var(--t2)">PENDING</span>' : ''}
       </div>
-      <div style="font-size:13px;color:var(--t1);white-space:pre-wrap">${esc(fb.content)}</div>
-    </div>
-  `).join('');
-  
+      ${verdictBar}
+      ${fbList.map(fb => `
+        <div class="disc-feedback-item">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-weight:600;font-size:13px">${esc(fb.participant)}</span>
+            ${fb.role ? `<span style="font-size:11px;color:var(--t2)">${esc(fb.role)}</span>` : ''}
+            ${fb.verdict ? `<span class="verdict-${fb.verdict}" style="font-size:11px;font-weight:600;text-transform:uppercase">${fb.verdict}</span>` : ''}
+            <span style="margin-left:auto;font-size:10px;color:var(--t2)">${timeAgo(fb.created_at)}</span>
+          </div>
+          <div style="font-size:13px;color:var(--t1);white-space:pre-wrap">${esc(fb.content)}</div>
+        </div>
+      `).join('')}
+      ${!hasFeedback && !isFuture ? '<div style="font-size:12px;color:var(--t2);padding:8px 0">No feedback submitted for this round</div>' : ''}
+    </div>`;
+  }
+
+  // Final outcome
+  let outcomeHtml = '';
+  if(summary){
+    const consensusMap = {
+      approved: {label:'✅ Approved', color:'var(--ok)'},
+      approved_with_conditions: {label:'⚠️ Approved with Conditions', color:'var(--warn)'},
+      rejected: {label:'❌ Rejected', color:'var(--err)'},
+      in_progress: {label:'🔄 In Progress', color:'var(--ac)'},
+      no_feedback: {label:'⏳ Awaiting Feedback', color:'var(--t2)'},
+    };
+    const c = consensusMap[summary.consensus] || {label:summary.consensus, color:'var(--t2)'};
+    const totalFb = summary.total_feedback || 0;
+    const roundsCompleted = Object.keys(rounds).filter(r => rounds[r].length > 0).length;
+
+    outcomeHtml = `<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:14px;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;color:var(--t2)">Final Outcome</div>
+      <div style="font-size:16px;font-weight:700;color:${c.color};margin-bottom:6px">${c.label}</div>
+      <div style="font-size:12px;color:var(--t2);display:flex;gap:16px">
+        <span>📊 ${totalFb} feedback total</span>
+        <span>🔄 ${roundsCompleted}/${d.max_rounds} rounds completed</span>
+        <span>📍 Round ${d.current_round} of ${d.max_rounds}</span>
+      </div>
+    </div>`;
+  }
+
   const modal = document.getElementById('modal');
   document.getElementById('modal-bg').classList.add('open');
   modal.innerHTML = `
-    <div style="max-width:700px;max-height:80vh;overflow-y:auto;padding:24px">
+    <div style="max-width:750px;max-height:85vh;overflow-y:auto;padding:24px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
         <h2 style="flex:1">${esc(d.title)}</h2>
+        <span class="disc-status" style="background:${d.status==='consensus'?'var(--ok)':d.status==='closed'?'var(--t2)':'var(--ac)'};color:#fff;padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600">${d.status}</span>
         <button class="btn btn-s btn-sm" onclick="closeModal()">✕</button>
       </div>
       <div style="font-size:12px;color:var(--t2);margin-bottom:16px">
-        Status: ${d.status} · Round ${d.current_round}/${d.max_rounds} · ${d.feedback?.length||0} feedback entries · Created ${d.created_at}
+        Created by ${esc(d.created_by||'unknown')} · ${timeAgo(d.created_at)}
+        ${d.target_type ? ` · Linked to ${d.target_type} ${d.target_id||''}` : ''}
       </div>
+      ${outcomeHtml}
       ${isAuthenticated() ? `
-      <div style="margin-bottom:16px;padding:12px;background:var(--bg2);border-radius:var(--rs)">
-        <div style="font-size:12px;font-weight:600;margin-bottom:8px">Add Feedback</div>
+      <div style="margin-bottom:16px;padding:12px;background:var(--bg2);border-radius:var(--rs);border:1px solid var(--bd)">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px">Add Feedback (Round ${d.current_round})</div>
         <div style="display:flex;gap:8px;margin-bottom:8px">
           <input id="fb-participant" placeholder="Your name" style="flex:1">
           <select id="fb-verdict"><option value="">No verdict</option><option value="approve">✅ Approve</option><option value="conditional">⚠️ Conditional</option><option value="reject">❌ Reject</option></select>
@@ -1334,8 +1509,8 @@ async function showDiscussion(id){
         <button class="btn btn-p btn-sm" onclick="submitFeedback('${d.id}')">Submit</button>
       </div>` : ''}
       <div style="border-top:1px solid var(--bd);padding-top:12px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Feedback (${d.feedback?.length||0})</div>
-        ${feedbackHtml || '<div style="color:var(--t2);font-size:13px">No feedback yet</div>'}
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Rounds & Feedback</div>
+        ${roundsHtml || '<div style="color:var(--t2);font-size:13px">No feedback yet</div>'}
       </div>
     </div>`;
 }
