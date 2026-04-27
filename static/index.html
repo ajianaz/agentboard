@@ -48,6 +48,18 @@ select{appearance:auto}
 .sb-add{color:var(--t2)!important;font-size:13px}
 .sb-add:hover{color:var(--t0)!important}
 .sb-foot{margin-top:auto;padding:12px 16px;border-top:1px solid var(--bd);font-size:11px;color:var(--t2)}
+#sb-auth-row{display:flex;align-items:center;gap:6px}
+#sb-auth-icon{font-size:14px;cursor:pointer;flex-shrink:0;user-select:none}
+#sb-auth-icon:hover{opacity:.7}
+#sb-key-input{flex:1;min-width:0;background:var(--bg3);border:1px solid var(--bd);border-radius:4px;padding:4px 8px;font-size:11px;color:var(--t0);outline:none;font-family:monospace}
+#sb-key-input:focus{border-color:var(--ac)}
+#sb-key-input::placeholder{color:var(--t2);font-family:inherit}
+#sb-key-btn{background:var(--ac);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;font-weight:600;line-height:1}
+#sb-key-btn:hover{opacity:.85}
+#sb-key-logout{background:transparent;color:var(--err);border:1px solid var(--err);border-radius:4px;padding:4px 6px;font-size:12px;cursor:pointer;line-height:1}
+#sb-key-logout:hover{background:var(--err);color:#fff}
+#sb-github{color:var(--t2);transition:color .2s;display:flex;align-items:center}
+#sb-github:hover{color:var(--t0)}
 
 /* Menu toggle */
 #menu-toggle{display:none;position:fixed;top:10px;left:10px;z-index:100;background:var(--bg1);border:1px solid var(--bd2);color:var(--t0);border-radius:var(--rs);padding:8px 10px;font-size:18px}
@@ -309,8 +321,18 @@ select{appearance:auto}
   <a href="#agents">🤖 Agents</a>
   <a href="#settings">⚙️ Settings</a>
   <div class="sb-foot">
-    <span id="sb-auth" style="cursor:pointer" onclick="showSetup()" title="Click to manage API key">🔓 Read-only</span>
-    <span id="sb-ver">v1.3.0-dev</span>
+    <div id="sb-auth-row">
+      <span id="sb-auth-icon" title="Click to manage API key">🔓</span>
+      <input id="sb-key-input" type="password" placeholder="API Key…">
+      <button id="sb-key-btn" onclick="sidebarAuth()" title="Save API key">→</button>
+      <button id="sb-key-logout" onclick="sidebarLogout()" title="Remove key" style="display:none">✕</button>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
+      <a id="sb-github" href="https://github.com/ajianaz/agentboard" target="_blank" rel="noopener" title="GitHub">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+      <span id="sb-ver" style="font-size:11px;color:var(--t2)">…</span>
+    </div>
   </div>
 </nav>
 
@@ -517,6 +539,8 @@ async function loadComments(taskId){
 // ── Setup ──
 function showSetup(){
   document.getElementById('app').innerHTML=`<div class="setup"><div class="setup-card"><h1>Agent<span>Board</span></h1><p>Enter your API key (shown when server starts)</p><input id="s-key" type="password" placeholder="API Key"><button class="btn btn-p" style="width:100%" onclick="doSetup()">Connect</button><div class="err" id="s-err"></div></div></div>`;
+  const inp=document.getElementById('s-key');
+  if(inp)inp.addEventListener('keydown',e=>{if(e.key==='Enter')doSetup()});
 }
 async function doSetup(){
   const key=document.getElementById('s-key').value.trim();
@@ -526,7 +550,39 @@ async function doSetup(){
   updateAuthBadge();
   render();
 }
-
+async function sidebarAuth(){
+  const inp=document.getElementById('sb-key-input');
+  const key=inp?inp.value.trim():'';
+  if(!key){toast('Enter an API key','warn');return}
+  localStorage.setItem('ab_key',key);
+  toast('Authenticated ✓','ok');
+  updateAuthBadge();
+}
+function sidebarLogout(){
+  localStorage.removeItem('ab_key');
+  toast('Key removed','ok');
+  updateAuthBadge();
+}
+function updateAuthBadge(){
+  const icon=document.getElementById('sb-auth-icon');
+  const inp=document.getElementById('sb-key-input');
+  const btn=document.getElementById('sb-key-btn');
+  const out=document.getElementById('sb-key-logout');
+  if(!icon)return;
+  if(isAuthenticated()){
+    icon.textContent='🔒';
+    icon.title='Authenticated — click to change key';
+    if(inp){inp.style.display='none';inp.value=''}
+    if(btn)btn.style.display='none';
+    if(out)out.style.display='';
+  }else{
+    icon.textContent='🔓';
+    icon.title='No API key — read-only mode';
+    if(inp)inp.style.display='';
+    if(btn)btn.style.display='';
+    if(out)out.style.display='none';
+  }
+}
 // ── Maintenance banner ──
 function showMaintenanceBanner(){
   let el=document.getElementById('maintenance-banner');
@@ -554,24 +610,16 @@ async function checkHealth(){
     const r=await fetch('/api/health');
     if(!r.ok)return;
     const d=await r.json();
+    if(d.version){
+      const el=document.getElementById('sb-ver');
+      if(el)el.textContent='v'+d.version;
+    }
     if(d.maintenance)showMaintenanceBanner();
     else{
       const el=document.getElementById('maintenance-banner');
       if(el)el.remove();
     }
   }catch(e){}
-}
-
-function updateAuthBadge(){
-  const el=document.getElementById('sb-auth');
-  if(!el)return;
-  if(isAuthenticated()){
-    el.textContent='🔒 Authenticated';
-    el.title='Click to change API key';
-  }else{
-    el.textContent='🔓 Read-only';
-    el.title='Click to enter API key for write access';
-  }
 }
 
 // ── Sidebar ──
@@ -1706,6 +1754,12 @@ document.addEventListener('keydown',e=>{
     if(document.getElementById('modal-bg').classList.contains('open'))closeModal();
     else if(S.taskPanelOpen)closeTaskPanel();
   }
+});
+
+// Sidebar key input: Enter to submit
+document.addEventListener('DOMContentLoaded',()=>{
+  const inp=document.getElementById('sb-key-input');
+  if(inp)inp.addEventListener('keydown',e=>{if(e.key==='Enter')sidebarAuth()});
 });
 
 // Start
