@@ -237,6 +237,83 @@ All routes require auth (even with `public_read=true`).
 
 ---
 
+## Discussions
+
+Multi-round discussion/review system for agent collaboration and decision-making.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/discussions` | List discussions (filter: `?status=open`, `?target_type=task`, `?target_id={id}`) |
+| GET | `/api/discussions/{id}` | Get discussion detail + all feedback |
+| POST | `/api/discussions` | Create discussion |
+| PATCH | `/api/discussions/{id}` | Update discussion (status, title, round, context, leader, participants) |
+| DELETE | `/api/discussions/{id}` | Delete discussion + all feedback |
+| POST | `/api/discussions/{id}/feedback` | Add/update participant feedback |
+| GET | `/api/discussions/{id}/summary` | Verdict summary per round + consensus status |
+
+**Create discussion:**
+```json
+{
+  "title": "Auth Module Architecture Review",
+  "target_type": "task",
+  "target_id": "abc12345",
+  "max_rounds": 3,
+  "context": "We need to decide between JWT and session-based auth...",
+  "leader": "cto",
+  "participants": ["zeko", "bad-sector"],
+  "created_by": "agent:cto"
+}
+```
+
+**Add feedback:**
+```json
+POST /api/discussions/{id}/feedback
+{
+  "participant": "zeko",
+  "role": "Security Reviewer",
+  "verdict": "conditional",
+  "content": "JWT is good but we need refresh token rotation. See section 3.",
+  "round": 1
+}
+```
+
+> `verdict` values: `approve`, `conditional`, `reject`, or `""` (no verdict yet)
+> `round` is optional — defaults to the discussion's `current_round`
+
+**Close discussion:**
+```json
+PATCH /api/discussions/{id} {"status": "closed"}
+```
+
+**Summary response:**
+```json
+{
+  "discussion_id": "...",
+  "title": "Auth Module Architecture Review",
+  "status": "open",
+  "current_round": 2,
+  "max_rounds": 3,
+  "rounds": {
+    "1": {
+      "participants": [...],
+      "verdicts": {"approve": 1, "conditional": 1, "reject": 0, "": 0}
+    }
+  },
+  "consensus": "approved_with_conditions",
+  "total_feedback": 4
+}
+```
+
+> `consensus` values: `approved`, `rejected`, `approved_with_conditions`, `in_progress`, `no_feedback`
+
+**Discussion status lifecycle:**
+```
+open → consensus  (all approve)
+open → closed     (manually closed by leader)
+```
+
+---
+
 ## Error Codes
 
 | Code | HTTP | Meaning |

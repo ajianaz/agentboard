@@ -112,7 +112,96 @@ curl -H "$AUTH" "$BASE/api/search?q=database+migration"
 
 ---
 
-## 7. Backup & Recovery
+## 8. Multi-Agent Discussion
+
+Leader agent initiates a structured review with multiple participants. Each participant provides feedback with a verdict (approve/conditional/reject). Discussion can span multiple rounds.
+
+**Create a discussion:**
+```bash
+curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  "$BASE/api/discussions" \
+  -d '{
+    "title": "Architecture Decision — Auth Strategy",
+    "target_type": "task",
+    "target_id": "abc12345",
+    "max_rounds": 2,
+    "context": "Choosing between JWT and session-based auth for the new SaaS product.",
+    "leader": "cto",
+    "participants": ["zeko", "bad-sector"],
+    "created_by": "agent:cto"
+  }'
+# → { "id": "discussion_id", "status": "open", ... }
+```
+
+**Participants submit feedback:**
+```bash
+curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  "$BASE/api/discussions/{id}/feedback" \
+  -d '{
+    "participant": "zeko",
+    "role": "Security Specialist",
+    "verdict": "approve",
+    "content": "JWT with refresh tokens is the right call. Add rotation policy.",
+    "round": 1
+  }'
+
+curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  "$BASE/api/discussions/{id}/feedback" \
+  -d '{
+    "participant": "bad-sector",
+    "role": "Devil'\''s Advocate",
+    "verdict": "conditional",
+    "content": "JWT works, but consider session fallback for admin panel.",
+    "round": 1
+  }'
+```
+
+**Check summary + consensus:**
+```bash
+curl -H "$AUTH" "$BASE/api/discussions/{id}/summary"
+# → { "consensus": "approved_with_conditions", "rounds": {...}, ... }
+```
+
+**Close discussion:**
+```bash
+curl -X PATCH -H "$AUTH" -H "Content-Type: application/json" \
+  "$BASE/api/discussions/{id}" -d '{"status": "closed"}'
+```
+
+**Using the coordinator script (Python):**
+```python
+import sys
+sys.path.insert(0, "/path/to/agentboard")
+from tools.discussion import DiscussionSession
+
+# Define how to deliver requests to participants
+def my_send(agent, payload):
+    import urllib.request, json
+    url = f"http://your-gateway/{agent}/webhooks/discussion"
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    resp = urllib.request.urlopen(req, timeout=15)
+    return resp.status == 200
+
+disc = DiscussionSession(
+    topic="Auth Strategy Review",
+    leader="cto",
+    participants=["zeko", "bad-sector"],
+    phase="concept",
+    max_rounds=2
+)
+disc.create()
+disc.write_leader_draft("# Draft\n\nWe propose JWT with refresh tokens...")
+disc.send_round_request(send_fn=my_send)
+feedback = disc.collect_feedback(timeout=120)
+disc.write_synthesis("# Synthesis\n\nConsensus: approved with conditions...")
+disc.close()
+```
+
+---
+
+## 9. Backup & Recovery
 
 ```bash
 # Full export

@@ -24,7 +24,7 @@ python server.py
 # Open http://localhost:8765
 ```
 
-First run creates `agentboard.db` with default schema (v5), imports legacy API key, starts KPI engine, and runs auto-cleanup.
+First run creates `agentboard.db` with default schema (v6), imports legacy API key, starts KPI engine, and runs auto-cleanup.
 
 **CLI flags** (optional, override everything):
 ```bash
@@ -135,10 +135,15 @@ agentboard/
 │   └── agentboard/       # Agent integration skill
 │       ├── SKILL.md      # Skill hub — read this first
 │       └── references/
-│           ├── api_reference.md    # All 31 API endpoints
+│           ├── api_reference.md    # All 40+ API endpoints
 │           ├── code_examples.md    # Python & curl snippets
-│           ├── workflows.md        # Common agent workflows
+│           ├── workflows.md        # Common agent workflows (incl. discussion)
 │           └── pitfalls.md         # Gotchas & troubleshooting
+├── tools/
+│   ├── __init__.py
+│   ├── client.py            # Python client wrapper (Board class)
+│   ├── discussion.py        # Discussion coordinator (DiscussionSession)
+│   └── README.md            # Tools documentation
 ├── agentboard.db          # SQLite database (auto-created, gitignored)
 ├── agentboard.toml        # Optional config (all defaults work)
 ├── .api_key               # Auto-generated API key (first run, gitignored)
@@ -399,6 +404,46 @@ CREATE TABLE activity (
 );
 CREATE INDEX idx_activity_project ON activity(project_id);
 CREATE INDEX idx_activity_created ON activity(created_at DESC);
+```
+
+### Discussions (multi-round review)
+
+```sql
+CREATE TABLE discussions (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    title TEXT NOT NULL,
+    target_type TEXT DEFAULT '',
+    target_id TEXT DEFAULT '',
+    status TEXT DEFAULT 'open',          -- open, closed, consensus
+    current_round INTEGER DEFAULT 1,
+    max_rounds INTEGER DEFAULT 5,
+    created_by TEXT DEFAULT '',
+    context TEXT DEFAULT '',              -- background/context for the discussion
+    participants TEXT DEFAULT '[]',       -- JSON array of participant IDs
+    leader TEXT DEFAULT '',               -- discussion leader/organizer
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_discussions_target ON discussions(target_type, target_id);
+CREATE INDEX idx_discussions_status ON discussions(status);
+CREATE INDEX idx_discussions_created ON discussions(created_at DESC);
+```
+
+```sql
+CREATE TABLE discussion_feedback (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    discussion_id TEXT NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
+    round INTEGER NOT NULL,
+    participant TEXT NOT NULL,
+    role TEXT DEFAULT '',
+    verdict TEXT DEFAULT '',              -- approve, conditional, reject, or empty
+    content TEXT NOT NULL DEFAULT '',
+    word_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_feedback_discussion ON discussion_feedback(discussion_id);
+CREATE INDEX idx_feedback_round ON discussion_feedback(discussion_id, round);
+CREATE INDEX idx_feedback_participant ON discussion_feedback(discussion_id, participant);
 ```
 
 
@@ -715,6 +760,79 @@ When maintenance mode is active:
   "maintenance": true,
   "version": "1.1.0"
 }
+```
+
+### Discussions
+
+Multi-round discussion/review system for structured agent collaboration.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/discussions` | List discussions (filter: `?status=open`, `?target_type=task`, `?target_id={id}`) |
+| GET | `/api/discussions/{id}` | Discussion detail + all feedback |
+| POST | `/api/discussions` | Create discussion |
+| PATCH | `/api/discussions/{id}` | Update (status, title, round, context, leader, participants) |
+| DELETE | `/api/discussions/{id}` | Delete + all feedback |
+| POST | `/api/discussions/{id}/feedback` | Add/update feedback (verdict: approve/conditional/reject) |
+| GET | `/api/discussions/{id}/summary` | Verdict summary + consensus status |
+
+**Create discussion:**
+```json
+POST /api/discussions
+{
+  "title": "Architecture Decision — Auth Strategy",
+  "target_type": "task",
+  "target_id": "abc12345",
+  "max_rounds": 3,
+  "context": "We need to decide between JWT and session-based auth for the new product.",
+  "leader": "cto",
+  "participants": ["zeko", "bad-sector"],
+  "created_by": "agent:cto"
+}
+```
+
+**Submit feedback:**
+```json
+POST /api/discussions/{id}/feedback
+{
+  "participant": "zeko",
+  "role": "Security Specialist",
+  "verdict": "conditional",
+  "content": "JWT is the right choice, but we need refresh token rotation. See section 3.",
+  "round": 1
+}
+```
+
+**Close discussion:**
+```json
+PATCH /api/discussions/{id} {"status": "closed"}
+```
+
+**Discussion lifecycle:**
+```
+open → consensus  (all participants approve)
+open → closed     (manually closed by leader)
+```
+
+**Consensus values:** `approved`, `rejected`, `approved_with_conditions`, `in_progress`, `no_feedback`
+
+**Coordinator script** (`tools/discussion.py`):
+```python
+from tools.discussion import DiscussionSession
+
+disc = DiscussionSession(
+    topic="Auth Strategy Review",
+    leader="cto",
+    participants=["zeko", "bad-sector"],
+    phase="concept",
+    max_rounds=2
+)
+disc.create()
+disc.write_leader_draft("# Draft\n\n...")
+disc.send_round_request(send_fn=my_webhook_sender)
+feedback = disc.collect_feedback(timeout=120)
+disc.write_synthesis("# Synthesis\n\n...")
+disc.close()
 ```
 
 ### Auth Keys (API Key Management)
