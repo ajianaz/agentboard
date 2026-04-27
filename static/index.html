@@ -879,7 +879,7 @@ async function loadPageReadonly(id, slug, cachedPages){
   }
   if(!page) return;
   document.getElementById('de-title').value = page.title || '';
-  document.getElementById('de-preview').innerHTML = renderMd(page.content || '');
+  document.getElementById('de-preview').innerHTML = md(page.content || '');
   document.querySelectorAll('.tree-item').forEach(el => {
     el.classList.toggle('active', el.dataset.id === id);
   });
