@@ -1404,6 +1404,10 @@ function renderDiscussionItem(d){
   const statusLabel = d.status==='consensus'?'✅ Consensus':d.status==='closed'?'🔴 Closed':'🔵 Open';
   const rounds = [];
   for(let i=1;i<=d.max_rounds;i++) rounds.push(`<span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:${i<=d.current_round?'var(--ac)':'var(--bg3)'}"></span>`);
+  const parts = d.participants && d.participants.length;
+  const partBadges = parts && d.participants.length <= 4 ? d.participants.map(p =>
+    `<span style="font-size:10px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:1px 6px;color:var(--t1)">${p===d.leader?'👑 ':''}${esc(p)}</span>`
+  ).join(' ') : '';
   return `<div class="disc-item" onclick="showDiscussion('${d.id}')">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
       <span style="font-weight:600;font-size:14px;flex:1">${esc(d.title)}</span>
@@ -1413,8 +1417,11 @@ function renderDiscussionItem(d){
       <span>R${d.current_round}/${d.max_rounds}</span>
       <span>${rounds.join(' ')}</span>
       <span>${d.feedback_count||0} feedback</span>
+      ${d.leader ? `<span>👤 ${esc(d.leader)}</span>` : ''}
+      ${parts ? `<span>👥 ${d.participants.length} participant${d.participants.length!==1?'s':''}</span>` : ''}
       <span style="margin-left:auto">${timeAgo(d.updated_at||d.created_at)}</span>
     </div>
+    ${partBadges ? `<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${partBadges}</div>` : ''}
   </div>`;
 }
 
@@ -1435,14 +1442,14 @@ async function showDiscussion(id){
   const verdictMap = {
     approve: {icon:'✅', label:'Approve', cls:'verdict-approve'},
     reject: {icon:'❌', label:'Reject', cls:'verdict-reject'},
-    comment: {icon:'💬', label:'Comment', cls:'verdict-comment'},
+    conditional: {icon:'💬', label:'Conditional', cls:'verdict-comment'},
   };
 
   // Global verdict summary
   const allFb = d.feedback || [];
   const totalApprove = allFb.filter(f => f.verdict === 'approve').length;
   const totalReject = allFb.filter(f => f.verdict === 'reject').length;
-  const totalComment = allFb.filter(f => f.verdict === 'comment' || !f.verdict).length;
+  const totalComment = allFb.filter(f => f.verdict === 'conditional' || !f.verdict).length;
 
   // Group feedback by round
   const rounds = {};
@@ -1470,7 +1477,7 @@ async function showDiscussion(id){
         ${hasFeedback ? `<span style="font-size:11px;color:var(--t2);margin-left:auto">${fbList.length} response${fbList.length!==1?'s':''}</span>` : ''}
       </div>
       ${fbList.map(fb => {
-        const v = verdictMap[fb.verdict] || verdictMap.comment;
+        const v = verdictMap[fb.verdict] || verdictMap.conditional;
         return `<div class="disc-feedback-item">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <span style="font-weight:600;font-size:13px">${esc(fb.participant)}</span>
@@ -1526,6 +1533,16 @@ async function showDiscussion(id){
         ${d.updated_at && d.updated_at !== d.created_at ? `<span>Updated ${timeAgo(d.updated_at)}</span>` : ''}
         ${d.target_type ? `<span>Linked to ${esc(d.target_type)}${d.target_id ? ' '+esc(String(d.target_id)) : ''}</span>` : ''}
       </div>
+      ${d.context ? `<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:14px;margin-bottom:16px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;color:var(--t2)">Context</div>
+        <div style="font-size:13px;color:var(--t1);line-height:1.6">${md(d.context)}</div>
+      </div>` : ''}
+      ${(d.participants && d.participants.length) || d.leader ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+        ${d.leader ? `<span style="font-size:12px;font-weight:600;color:var(--warn)">👑 ${esc(d.leader)}</span>` : ''}
+        ${d.participants && d.participants.length ? d.participants.map(p =>
+          `<span style="font-size:11px;background:${p===d.leader?'var(--warn)':'var(--bg2)'};border:1px solid ${p===d.leader?'var(--warn)':'var(--bd)'};border-radius:var(--rs);padding:2px 8px;color:${p===d.leader?'#000':'var(--t1)'};font-weight:${p===d.leader?'600':'400'}">${p===d.leader?'👑 ':''}${esc(p)}</span>`
+        ).join(' ') : ''}
+      </div>` : ''}
       ${allFb.length > 0 ? `<div class="stats-bar" style="padding:0 0 16px">
         <div class="stat-card" style="padding:10px 14px">
           <div style="display:flex;align-items:center;gap:6px">
@@ -1545,7 +1562,7 @@ async function showDiscussion(id){
           <div style="display:flex;align-items:center;gap:6px">
             <span style="color:var(--ac);font-size:16px">💬</span>
             <span style="font-weight:600;font-size:18px;color:var(--ac)">${totalComment}</span>
-            <span style="font-size:12px;color:var(--t2)">Comment</span>
+            <span style="font-size:12px;color:var(--t2)">Conditional</span>
           </div>
         </div>
         <div class="stat-card" style="padding:10px 14px">
@@ -1562,7 +1579,7 @@ async function showDiscussion(id){
         <div style="font-size:12px;font-weight:600;margin-bottom:8px">Add Feedback (Round ${d.current_round})</div>
         <div style="display:flex;gap:8px;margin-bottom:8px">
           <input id="fb-participant" placeholder="Your name" style="flex:1">
-          <select id="fb-verdict"><option value="">No verdict</option><option value="approve">✅ Approve</option><option value="comment">💬 Comment</option><option value="reject">❌ Reject</option></select>
+          <select id="fb-verdict"><option value="">No verdict</option><option value="approve">✅ Approve</option><option value="conditional">💬 Conditional</option><option value="reject">❌ Reject</option></select>
         </div>
         <textarea id="fb-content" placeholder="Your feedback..." rows="3" style="margin-bottom:8px"></textarea>
         <button class="btn btn-p btn-sm" onclick="submitFeedback('${d.id}')">Submit</button>
@@ -1592,10 +1609,22 @@ function showNewDiscussionModal(){
       <h2 style="margin-bottom:16px">New Discussion</h2>
       <label style="font-size:12px;color:var(--t2);margin-bottom:4px;display:block">Title</label>
       <input id="nd-title" placeholder="Discussion topic..." style="margin-bottom:12px">
-      <label style="font-size:12px;color:var(--t2);margin-bottom:4px;display:block">Max Rounds</label>
-      <select id="nd-rounds" style="margin-bottom:12px;width:auto">
-        <option value="3">3 rounds</option><option value="5" selected>5 rounds</option><option value="7">7 rounds</option>
-      </select>
+      <label style="font-size:12px;color:var(--t2);margin-bottom:4px;display:block">Context / Description</label>
+      <textarea id="nd-context" placeholder="Description or context for this discussion..." rows="3" style="margin-bottom:12px"></textarea>
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <div style="flex:1">
+          <label style="font-size:12px;color:var(--t2);margin-bottom:4px;display:block">Leader</label>
+          <input id="nd-leader" placeholder="Discussion leader (optional)" style="width:100%">
+        </div>
+        <div style="width:140px">
+          <label style="font-size:12px;color:var(--t2);margin-bottom:4px;display:block">Max Rounds</label>
+          <select id="nd-rounds" style="width:100%">
+            <option value="3">3 rounds</option><option value="5" selected>5 rounds</option><option value="7">7 rounds</option>
+          </select>
+        </div>
+      </div>
+      <label style="font-size:12px;color:var(--t2);margin-bottom:4px;display:block">Participants</label>
+      <input id="nd-participants" placeholder="agent1, agent2, agent3 (comma-separated, optional)" style="margin-bottom:16px">
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn btn-s" onclick="closeModal()">Cancel</button>
         <button class="btn btn-p" onclick="createDiscussion()">Create</button>
@@ -1606,8 +1635,12 @@ function showNewDiscussionModal(){
 async function createDiscussion(){
   const title = document.getElementById('nd-title').value.trim();
   const max_rounds = parseInt(document.getElementById('nd-rounds').value);
+  const context = document.getElementById('nd-context').value.trim();
+  const leader = document.getElementById('nd-leader').value.trim();
+  const participantsRaw = document.getElementById('nd-participants').value.trim();
+  const participants = participantsRaw ? participantsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
   if(!title) return toast('Title required','err');
-  const ok = await api('POST', '/api/discussions', {title, max_rounds});
+  const ok = await api('POST', '/api/discussions', {title, max_rounds, context, leader, participants});
   if(ok) { toast('Discussion created'); closeModal(); render(); }
   else toast('Failed','err');
 }

@@ -20,21 +20,21 @@ from api import router
 
 
 def _discussion_row_to_dict(row) -> dict:
-    """Convert a discussion Row to a plain dict."""
-    return dict(row)
+    """Convert a discussion Row to a plain dict, parsing JSON fields."""
+    d = dict(row)
+    # Parse participants JSON string -> list
+    raw = d.get("participants")
+    if isinstance(raw, str):
+        try:
+            d["participants"] = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            d["participants"] = []
+    return d
 
 
 def _feedback_row_to_dict(row) -> dict:
     """Convert a feedback Row to a plain dict."""
-    d = dict(row)
-    # Parse content if needed
-    raw = d.get("content")
-    if isinstance(raw, str):
-        try:
-            d["content"] = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            pass
-    return d
+    return dict(row)
 
 
 @router.get("/api/discussions")
@@ -155,11 +155,16 @@ def create_discussion(params, query, body, headers):
     actor = data.get("created_by") or get_actor_from_headers(headers)
     max_rounds = min(int(data.get("max_rounds", 5)), 20)
 
+    # participants as JSON string
+    participants_raw = data.get("participants", [])
+    participants_json = json.dumps(participants_raw) if isinstance(participants_raw, list) else str(participants_raw)
+
     conn.execute(
-        """INSERT INTO discussions (id, title, target_type, target_id, status, current_round, max_rounds, created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'open', 1, ?, ?, datetime('now'), datetime('now'))""",
+        """INSERT INTO discussions (id, title, target_type, target_id, status, current_round, max_rounds, created_by, created_at, updated_at, context, participants, leader)
+           VALUES (?, ?, ?, ?, 'open', 1, ?, ?, datetime('now'), datetime('now'), ?, ?, ?)""",
         (discussion_id, title, data.get("target_type", ""), data.get("target_id", ""),
-         max_rounds, actor),
+         max_rounds, actor,
+         data.get("context", ""), participants_json, data.get("leader", "")),
     )
     conn.commit()
 
@@ -203,6 +208,17 @@ def update_discussion(params, query, body, headers):
     if "current_round" in data:
         updates.append("current_round = ?")
         update_params.append(min(int(data["current_round"]), row["max_rounds"]))
+    if "context" in data:
+        updates.append("context = ?")
+        update_params.append(data["context"])
+    if "leader" in data:
+        updates.append("leader = ?")
+        update_params.append(data["leader"])
+    if "participants" in data:
+        raw = data["participants"]
+        participants_json = json.dumps(raw) if isinstance(raw, list) else str(raw)
+        updates.append("participants = ?")
+        update_params.append(participants_json)
 
     if updates:
         updates.append("updated_at = datetime('now')")

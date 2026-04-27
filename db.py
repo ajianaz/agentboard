@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -377,6 +377,10 @@ CREATE TABLE IF NOT EXISTS discussion_feedback (
 CREATE INDEX IF NOT EXISTS idx_feedback_discussion ON discussion_feedback(discussion_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_round ON discussion_feedback(discussion_id, round);
 CREATE INDEX IF NOT EXISTS idx_feedback_participant ON discussion_feedback(discussion_id, participant);""",
+        6: """-- Schema v6: enrich discussions with context, participants, leader
+ALTER TABLE discussions ADD COLUMN context TEXT DEFAULT '';
+ALTER TABLE discussions ADD COLUMN participants TEXT DEFAULT '';
+ALTER TABLE discussions ADD COLUMN leader TEXT DEFAULT '';""",
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)
