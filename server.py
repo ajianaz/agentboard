@@ -19,7 +19,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 
 # Local imports
 from config import get_config
