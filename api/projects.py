@@ -15,6 +15,7 @@ Endpoints:
 import json
 from db import get_db, gen_id, slugify
 from api import router, is_authenticated
+from api.validation import validate_title, validate_text, validate_enum, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH, VALID_VISIBILITIES
 
 
 # ---------------------------------------------------------------------------
@@ -22,13 +23,13 @@ from api import router, is_authenticated
 # ---------------------------------------------------------------------------
 
 def _parse_body(body: bytes) -> dict:
-    """Safely parse JSON body, returning empty dict on empty/invalid input."""
+    """Safely parse JSON body. Returns empty dict on empty body, None on invalid JSON."""
     if not body:
         return {}
     try:
         return json.loads(body)
     except (json.JSONDecodeError, ValueError):
-        return {}
+        return None
 
 
 def _project_row_to_dict(row) -> dict:
@@ -139,10 +140,11 @@ def get_project(params, query, body, headers):
 @router.post("/api/projects")
 def create_project(params, query, body, headers):
     data = _parse_body(body)
-    name = (data.get("name") or "").strip()
-
-    if not name:
-        return 400, {"error": "Project name is required", "code": "VALIDATION_ERROR"}
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
+    name, name_err = validate_title(data.get("name"), MAX_NAME_LENGTH, "Project name")
+    if name_err:
+        return 400, {"error": name_err, "code": "VALIDATION_ERROR"}
 
     slug = slugify(name)
     if not slug or slug == "untitled":
@@ -194,7 +196,7 @@ def create_project(params, query, body, headers):
     position = (pos_row["max_pos"] or 0) + 1
 
     project_id = gen_id()
-    description = (data.get("description") or "").strip()
+    description = validate_text(data.get("description"), MAX_DESCRIPTION_LENGTH, "Project description")
     icon = (data.get("icon") or "📋").strip()
     color = (data.get("color") or "#3b82f6").strip()
     statuses = data.get("statuses") or default_statuses
@@ -232,6 +234,8 @@ def create_project(params, query, body, headers):
 def update_project(params, query, body, headers):
     slug = params["slug"]
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
     conn = get_db()
@@ -246,10 +250,10 @@ def update_project(params, query, body, headers):
 
     # Name
     if "name" in data and data["name"] is not None:
-        new_name = str(data["name"]).strip()
-        if not new_name:
+        new_name, name_err = validate_title(data["name"], MAX_NAME_LENGTH, "Project name")
+        if name_err:
             conn.close()
-            return 400, {"error": "Project name cannot be empty", "code": "VALIDATION_ERROR"}
+            return 400, {"error": name_err, "code": "VALIDATION_ERROR"}
         updates["name"] = new_name
         detail_changes["name"] = new_name
 
@@ -274,8 +278,8 @@ def update_project(params, query, body, headers):
 
     # Visibility (validated enum)
     if "visibility" in data and data["visibility"] is not None:
-        vis = str(data["visibility"]).strip().lower()
-        if vis not in ("public", "hidden"):
+        vis = validate_enum(data["visibility"], VALID_VISIBILITIES)
+        if vis is None:
             conn.close()
             return 400, {"error": "visibility must be 'public' or 'hidden'", "code": "VALIDATION_ERROR"}
         updates["visibility"] = vis
@@ -471,6 +475,8 @@ def get_stats(params, query, body, headers):
 @router.post("/api/setup")
 def setup(params, query, body, headers):
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
     conn = get_db()

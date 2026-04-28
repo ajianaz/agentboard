@@ -165,10 +165,14 @@ def check_auth(headers: dict, stored_hash: str) -> bool:
     Used as fallback when api_keys table doesn't exist yet.
     """
     if not stored_hash:
-        return True
+        # Defensive: reject if no key configured, even if currently unreachable
+        # (hash_key() always returns non-empty, but protect against future misuse)
+        return False
     auth_header = headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
+        if len(token) > 1024:
+            return False
         return validate_key(token, stored_hash)
     return False
 
@@ -183,6 +187,8 @@ def check_auth_multi(headers: dict) -> tuple:
     if not auth_header.startswith("Bearer "):
         return False, None
     token = auth_header[7:]
+    if len(token) > 1024:
+        return False, None
     return validate_key_against_db(token)
 
 
@@ -196,5 +202,10 @@ def has_db_keys() -> bool:
 
 def get_actor_from_headers(headers: dict) -> str:
     """Determine who is making the request from the X-Actor header."""
+    import re
     actor = headers.get("x-actor", "")
+    if not actor:
+        return "owner"
+    # Sanitize: alphanumeric, underscore, hyphen only, max 64 chars
+    actor = re.sub(r"[^a-zA-Z0-9_-]", "", actor)[:64]
     return actor if actor else "owner"

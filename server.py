@@ -203,7 +203,13 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _read_body(self) -> bytes:
         """Read the request body based on Content-Length header."""
+        MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB
         length = int(self.headers.get("content-length", 0))
+        if length > MAX_BODY_SIZE:
+            self._json_response(
+                {"error": "Request body too large", "code": "PAYLOAD_TOO_LARGE"}, 413
+            )
+            return b""
         return self.rfile.read(length) if length > 0 else b""
 
     def _json_response(self, data, status: int = 200):

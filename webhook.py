@@ -147,8 +147,10 @@ def _send_webhook(agent_id: str, event: str, payload: dict):
         )
         return
 
+    import uuid as _uuid
     envelope = {
         "event": event,
+        "event_id": _uuid.uuid4().hex[:16],
         "agent_id": agent_id,
         "timestamp": _utc_now(),
         "data": payload,
@@ -167,6 +169,11 @@ def _send_webhook(agent_id: str, event: str, payload: dict):
     if secret:
         signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
         req.add_header("X-Hub-Signature-256", f"sha256={signature}")
+    else:
+        logger.warning(
+            "Webhook to %s sent WITHOUT HMAC signature — WEBHOOK_SECRET not configured",
+            agent_id,
+        )
 
     timeout = _get_webhook_timeout()
 

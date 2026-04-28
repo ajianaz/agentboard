@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -293,13 +293,12 @@ def _run_migrations(conn: sqlite3.Connection, from_ver: int, to_ver: int):
     Migrations are keyed by target version number. Add new migrations
     by incrementing SCHEMA_VERSION and adding an entry here.
 
-    Args:
-        conn: Active database connection.
-        from_ver: Current schema version in the database.
-        to_ver: Target schema version to migrate to.
+    Each migration + version recording is done per-step with commit,
+    so a failure mid-way doesn't leave the DB in an ambiguous state.
+    Version INSERT uses INSERT OR IGNORE for idempotency (concurrent safety).
     """
     import logging
-    log = logging.getLogger("db.migration")
+    log = logging.getLogger(__name__)
 
     migrations = {
         2: """ALTER TABLE tasks ADD COLUMN parent_id TEXT REFERENCES tasks(id);
@@ -428,7 +427,8 @@ CREATE TABLE IF NOT EXISTS _pages_new (
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
-INSERT OR IGNORE INTO _pages_new SELECT *, 'public' FROM pages;
+INSERT OR IGNORE INTO _pages_new (id, project_id, parent_id, title, content, icon, position, depth, is_expanded, metadata, visibility, created_by, created_at, updated_at)
+SELECT id, project_id, parent_id, title, content, icon, position, depth, is_expanded, metadata, 'public', created_by, created_at, updated_at FROM pages;
 DROP TABLE pages;
 ALTER TABLE _pages_new RENAME TO pages;
 CREATE INDEX IF NOT EXISTS idx_pages_project ON pages(project_id);
@@ -454,6 +454,21 @@ CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages BEGIN
 END;
 -- Rebuild FTS index from existing pages so pre-existing rows are searchable
 INSERT INTO pages_fts(pages_fts) VALUES('rebuild');""",
+        8: """-- Schema v8: UNIQUE constraint on discussion_feedback for race-safe upsert
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_unique ON discussion_feedback(discussion_id, round, participant);""",
+        9: """-- Schema v9: performance indexes for common query patterns
+-- Composite: tasks by project+status (list_project_tasks, get_project stats, stats endpoints)
+CREATE INDEX IF NOT EXISTS idx_tasks_project_status ON tasks(project_id, status);
+-- Composite: tasks by assignee+status (agent workload, KPI engine per-status counts)
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee_status ON tasks(assignee, status);
+-- Composite: activity by actor+created_at (KPI engine activity_count queries)
+CREATE INDEX IF NOT EXISTS idx_activity_actor_created ON activity(actor, created_at DESC);
+-- Composite: activity by project+created_at (project-scoped activity with time ranges)
+CREATE INDEX IF NOT EXISTS idx_activity_project_created ON activity(project_id, created_at DESC);
+-- Activity target_type (activity stats grouped by target type)
+CREATE INDEX IF NOT EXISTS idx_activity_target_type ON activity(target_type);
+-- Composite: tasks by assignee+created_at (KPI engine tasks_created by date)
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee_created ON tasks(assignee, created_at);""",
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)
@@ -470,8 +485,13 @@ INSERT INTO pages_fts(pages_fts) VALUES('rebuild');""",
                 else:
                     log.error("Migration v%d FAILED: %s — database may be in inconsistent state", ver, e)
                     raise  # Crash on migration failure — better to fail fast than run with corrupt schema
-        conn.execute("INSERT INTO _schema_version (version) VALUES (?)", (ver,))
-    conn.commit()
+        # Record version — INSERT OR IGNORE for idempotency (concurrent runs)
+        try:
+            conn.execute("INSERT OR IGNORE INTO _schema_version (version) VALUES (?)", (ver,))
+            conn.commit()
+        except Exception as e:
+            log.error("Migration v%d version recording FAILED: %s", ver, e)
+            raise
 
 
 def slugify(text: str) -> str:
