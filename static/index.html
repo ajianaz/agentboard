@@ -662,9 +662,18 @@ function showSetup(){
   const inp=document.getElementById('s-key');
   if(inp)inp.addEventListener('keydown',e=>{if(e.key==='Enter')doSetup()});
 }
+async function validateKey(key){
+  try{
+    const r=await fetch('/api/agents',{headers:{'Authorization':'Bearer '+key}});
+    return r.ok;
+  }catch(e){return false}
+}
 async function doSetup(){
   const key=document.getElementById('s-key').value.trim();
   if(!key){document.getElementById('s-err').textContent='API key required';return}
+  document.getElementById('s-err').textContent='Verifying…';
+  const ok=await validateKey(key);
+  if(!ok){document.getElementById('s-err').textContent='Invalid API key';localStorage.removeItem('ab_key');return}
   localStorage.setItem('ab_key',key);
   toast('Connected!','ok');
   updateAuthBadge();
@@ -674,6 +683,10 @@ async function sidebarAuth(){
   const inp=document.getElementById('sb-key-input');
   const key=inp?inp.value.trim():'';
   if(!key){toast('Enter an API key','warn');return}
+  inp.disabled=true;inp.placeholder='Verifying…';
+  const ok=await validateKey(key);
+  inp.disabled=false;inp.placeholder='API Key…';
+  if(!ok){toast('Invalid API key','err');localStorage.removeItem('ab_key');updateAuthBadge();return}
   localStorage.setItem('ab_key',key);
   toast('Authenticated ✓','ok');
   updateAuthBadge();
@@ -1384,7 +1397,9 @@ async function renderPublicDashboard(app){
   h+=`<div class="pub-stats">`;
   h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ac)">${st.total||0}</div><div class="pub-stat-lbl">Total Tasks</div></div>`;
   h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ok)">${st.done||0}</div><div class="pub-stat-lbl">Done</div></div>`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--rev)">${st.review||0}</div><div class="pub-stat-lbl">Review</div></div>`;
   h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ac)">${st.in_progress||0}</div><div class="pub-stat-lbl">In Progress</div></div>`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:#6b7280">${st.todo||0}</div><div class="pub-stat-lbl">To Do</div></div>`;
   h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--warn)">${st.proposed||0}</div><div class="pub-stat-lbl">Proposed</div></div>`;
   h+=`</div>`;
   // Status Breakdown — horizontal stacked bar
