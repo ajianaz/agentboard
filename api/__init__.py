@@ -43,7 +43,7 @@ class Router:
             return fn
         return decorator
 
-    def handle(self, method: str, path: str, query: dict, body: bytes, headers: dict):
+    def handle(self, method: str, path: str, query: dict, body: bytes, headers: dict) -> tuple[int, dict] | None:
         """Match and execute a route. Returns (status, data) or None."""
         for route_method, pattern, handler in self.routes:
             if route_method != method.upper():

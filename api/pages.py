@@ -13,6 +13,7 @@ Endpoints:
 import json
 from db import get_db, gen_id
 from api import router, is_authenticated
+from api.validation import validate_title, validate_text, validate_enum, MAX_TITLE_LENGTH, MAX_CONTENT_LENGTH, VALID_VISIBILITIES
 
 
 # ---------------------------------------------------------------------------
@@ -20,13 +21,13 @@ from api import router, is_authenticated
 # ---------------------------------------------------------------------------
 
 def _parse_body(body: bytes) -> dict:
-    """Safely parse JSON body, returning empty dict on empty/invalid input."""
+    """Safely parse JSON body. Returns empty dict on empty body, None on invalid JSON."""
     if not body:
         return {}
     try:
         return json.loads(body)
     except (json.JSONDecodeError, ValueError):
-        return {}
+        return None
 
 
 def _page_row_to_dict(row) -> dict:
@@ -142,18 +143,21 @@ def create_standalone_page(params, query, body, headers):
     Requires authentication.
     """
     if not is_authenticated(headers):
-        return 401, {"error": "Authentication required", "code": "AUTH_REQUIRED"}
+        return 401, {"error": "Authentication required", "code": "UNAUTHORIZED"}
 
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
-    title = (data.get("title") or "Untitled").strip()
-    content = (data.get("content") or "").strip()
-    icon = (data.get("icon") or "📄").strip()
+    title, title_err = validate_title(data.get("title"), MAX_TITLE_LENGTH, "Page title")
+    if title_err and "Untitled" not in title_err:
+        return 400, {"error": title_err, "code": "VALIDATION_ERROR"}
+    title = title or "Untitled"
+    content = validate_text(data.get("content"), MAX_CONTENT_LENGTH, "Page content")
+    icon = validate_text(data.get("icon"), 10, "icon") or "📄"
     parent_id = data.get("parent_id") or None
-    visibility = (data.get("visibility") or "public").strip().lower()
-    if visibility not in ("public", "hidden"):
-        visibility = "public"
+    visibility = validate_enum(data.get("visibility"), VALID_VISIBILITIES, default="public") or "public"
 
     # Validate parent_id belongs to another standalone page
     if parent_id:
@@ -161,7 +165,7 @@ def create_standalone_page(params, query, body, headers):
         parent = conn.execute("SELECT depth, project_id FROM pages WHERE id = ?", (parent_id,)).fetchone()
         if not parent:
             conn.close()
-            return 400, {"error": f"Parent page '{parent_id}' not found", "code": "NOT_FOUND"}
+            return 400, {"error": f"Parent page '{parent_id}' not found", "code": "VALIDATION_ERROR"}
         if parent["project_id"] is not None:
             conn.close()
             return 400, {"error": "Parent page belongs to a project — use project-scoped endpoint", "code": "VALIDATION_ERROR"}
@@ -246,6 +250,8 @@ def list_pages(params, query, body, headers):
 def create_page(params, query, body, headers):
     slug = params["slug"]
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
     conn = get_db()
@@ -258,9 +264,13 @@ def create_page(params, query, body, headers):
 
     project_id = project["id"]
 
-    title = (data.get("title") or "Untitled").strip()
-    content = (data.get("content") or "").strip()
-    icon = (data.get("icon") or "📄").strip()
+    title, title_err = validate_title(data.get("title"), MAX_TITLE_LENGTH, "Page title")
+    if title_err and "Untitled" not in title_err:
+        conn.close()
+        return 400, {"error": title_err, "code": "VALIDATION_ERROR"}
+    title = title or "Untitled"
+    content = validate_text(data.get("content"), MAX_CONTENT_LENGTH, "Page content")
+    icon = validate_text(data.get("icon"), 10, "icon") or "📄"
     parent_id = data.get("parent_id") or None
 
     # Calculate depth based on parent
@@ -269,7 +279,7 @@ def create_page(params, query, body, headers):
         parent = conn.execute("SELECT depth FROM pages WHERE id = ?", (parent_id,)).fetchone()
         if not parent:
             conn.close()
-            return 400, {"error": f"Parent page '{parent_id}' not found", "code": "NOT_FOUND"}
+            return 400, {"error": f"Parent page '{parent_id}' not found", "code": "VALIDATION_ERROR"}
         # Verify parent belongs to same project
         parent_proj = conn.execute("SELECT project_id FROM pages WHERE id = ?", (parent_id,)).fetchone()
         if parent_proj and parent_proj["project_id"] != project_id:
@@ -314,6 +324,8 @@ def create_page(params, query, body, headers):
 def update_page(params, query, body, headers):
     page_id = params["id"]
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
     conn = get_db()
@@ -329,13 +341,16 @@ def update_page(params, query, body, headers):
 
     # Title
     if "title" in data and data["title"] is not None:
-        new_title = str(data["title"]).strip()
+        new_title, title_err = validate_title(data["title"], MAX_TITLE_LENGTH, "Page title")
+        if title_err:
+            conn.close()
+            return 400, {"error": title_err, "code": "VALIDATION_ERROR"}
         updates["title"] = new_title
         detail_changes["title"] = new_title
 
     # Content
     if "content" in data and data["content"] is not None:
-        updates["content"] = str(data["content"])
+        updates["content"] = validate_text(data["content"], MAX_CONTENT_LENGTH, "Page content")
 
     # Icon
     if "icon" in data and data["icon"] is not None:
@@ -354,8 +369,8 @@ def update_page(params, query, body, headers):
 
     # Visibility (validated enum)
     if "visibility" in data and data["visibility"] is not None:
-        vis = str(data["visibility"]).strip().lower()
-        if vis not in ("public", "hidden"):
+        vis = validate_enum(data["visibility"], VALID_VISIBILITIES)
+        if vis is None:
             conn.close()
             return 400, {"error": "visibility must be 'public' or 'hidden'", "code": "VALIDATION_ERROR"}
         updates["visibility"] = vis
@@ -438,6 +453,8 @@ def delete_page(params, query, body, headers):
 def move_page(params, query, body, headers):
     page_id = params["id"]
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
     new_parent_id = data.get("parent_id")  # None means root level
@@ -465,7 +482,7 @@ def move_page(params, query, body, headers):
         parent = conn.execute("SELECT * FROM pages WHERE id = ?", (new_parent_id,)).fetchone()
         if not parent:
             conn.close()
-            return 400, {"error": f"Parent page '{new_parent_id}' not found", "code": "NOT_FOUND"}
+            return 400, {"error": f"Parent page '{new_parent_id}' not found", "code": "VALIDATION_ERROR"}
         if parent["project_id"] != project_id:
             conn.close()
             return 400, {"error": "Parent page belongs to a different project", "code": "VALIDATION_ERROR"}

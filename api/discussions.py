@@ -17,6 +17,7 @@ import json
 from db import get_db, gen_id
 from activity_logger import log_activity_event, get_actor_from_headers
 from api import router, is_authenticated
+from api.validation import validate_title, validate_text, validate_enum, MAX_TITLE_LENGTH, MAX_COMMENT_LENGTH, VALID_DISCUSSION_STATUSES, VALID_VISIBILITIES, VALID_VERDICTS
 from webhook import on_discussion_created, on_discussion_feedback, on_discussion_closed
 
 
@@ -75,8 +76,13 @@ def list_discussions(params, query, body, headers):
         conditions.append("d.status = ?")
         sql_params.append(status)
 
-    # Unauthenticated: only show public discussions
-    if not is_authenticated(headers):
+    # Visibility filter: hidden discussions only visible to their creator
+    # Unauthenticated users only see public discussions
+    actor = get_actor_from_headers(headers) if is_authenticated(headers) else None
+    if actor:
+        conditions.append("(d.visibility = 'public' OR d.created_by = ?)")
+        sql_params.append(actor)
+    else:
         conditions.append("d.visibility = 'public'")
 
     where = ""
@@ -124,10 +130,12 @@ def get_discussion(params, query, body, headers):
         conn.close()
         return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
 
-    # Unauthenticated: deny access to hidden discussions
-    if not is_authenticated(headers) and row["visibility"] != "public":
-        conn.close()
-        return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
+    # Visibility check: hidden discussions only accessible by their creator
+    if row["visibility"] != "public":
+        actor = get_actor_from_headers(headers) if is_authenticated(headers) else None
+        if not actor or actor != row["created_by"]:
+            conn.close()
+            return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
 
     # Get all feedback ordered by round, then participant
     feedback_rows = conn.execute(
@@ -155,10 +163,13 @@ def create_discussion(params, query, body, headers):
         max_rounds   — optional (default 5)
         created_by   — optional (auto-detected from X-Actor header)
     """
-    data = json.loads(body) if body else {}
-    title = data.get("title", "").strip()
-    if not title:
-        return 400, {"error": "Title is required", "code": "VALIDATION_ERROR"}
+    try:
+        data = json.loads(body) if body else {}
+    except (json.JSONDecodeError, ValueError):
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
+    title, title_err = validate_title(data.get("title"), MAX_TITLE_LENGTH, "Discussion title")
+    if title_err:
+        return 400, {"error": title_err, "code": "VALIDATION_ERROR"}
 
     # Validate leader and participants when creating via coordinator
     # (raw API calls without these fields create zombie discussions)
@@ -175,10 +186,10 @@ def create_discussion(params, query, body, headers):
     participants_json = json.dumps(participants_raw) if isinstance(participants_raw, list) else str(participants_raw)
 
     conn.execute(
-        """INSERT INTO discussions (id, title, target_type, target_id, status, current_round, max_rounds, created_by, created_at, updated_at, context, participants, leader)
-           VALUES (?, ?, ?, ?, 'open', 1, ?, ?, datetime('now'), datetime('now'), ?, ?, ?)""",
+        """INSERT INTO discussions (id, title, target_type, target_id, status, current_round, max_rounds, visibility, created_by, created_at, updated_at, context, participants, leader)
+           VALUES (?, ?, ?, ?, 'open', 1, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, ?)""",
         (discussion_id, title, data.get("target_type", ""), data.get("target_id", ""),
-         max_rounds, actor,
+         max_rounds, validate_enum(data.get("visibility"), VALID_VISIBILITIES, default="public") or "public", actor,
          context, participants_json, leader),
     )
     conn.commit()
@@ -204,7 +215,10 @@ def update_discussion(params, query, body, headers):
         status  — open, closed, consensus
         current_round — advance to next round
     """
-    data = json.loads(body) if body else {}
+    try:
+        data = json.loads(body) if body else {}
+    except (json.JSONDecodeError, ValueError):
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     discussion_id = params["id"]
     actor = get_actor_from_headers(headers)
 
@@ -217,29 +231,36 @@ def update_discussion(params, query, body, headers):
     updates = []
     update_params = []
 
-    if "title" in data and data["title"].strip():
+    if "title" in data and data["title"] and data["title"].strip():
+        title_val, title_err = validate_title(data["title"], MAX_TITLE_LENGTH, "Discussion title")
+        if title_err:
+            return 400, {"error": title_err, "code": "VALIDATION_ERROR"}
         updates.append("title = ?")
-        update_params.append(data["title"].strip())
-    if "status" in data and data["status"] in ("open", "closed", "consensus"):
-        updates.append("status = ?")
-        update_params.append(data["status"])
+        update_params.append(title_val)
+    if "status" in data:
+        status_val = validate_enum(data["status"], VALID_DISCUSSION_STATUSES)
+        if status_val is not None:
+            updates.append("status = ?")
+            update_params.append(status_val)
     if "current_round" in data:
         updates.append("current_round = ?")
         update_params.append(min(int(data["current_round"]), row["max_rounds"]))
     if "context" in data:
         updates.append("context = ?")
-        update_params.append(data["context"])
+        update_params.append(validate_text(data["context"], MAX_DESCRIPTION_LENGTH, "Discussion context"))
     if "leader" in data:
         updates.append("leader = ?")
-        update_params.append(data["leader"])
+        update_params.append(validate_text(data["leader"], 200, "Discussion leader"))
     if "participants" in data:
         raw = data["participants"]
         participants_json = json.dumps(raw) if isinstance(raw, list) else str(raw)
         updates.append("participants = ?")
         update_params.append(participants_json)
-    if "visibility" in data and data["visibility"] in ("public", "hidden"):
-        updates.append("visibility = ?")
-        update_params.append(data["visibility"])
+    if "visibility" in data:
+        vis = validate_enum(data["visibility"], VALID_VISIBILITIES)
+        if vis is not None:
+            updates.append("visibility = ?")
+            update_params.append(vis)
 
     if updates:
         updates.append("updated_at = datetime('now')")
@@ -294,18 +315,21 @@ def add_feedback(params, query, body, headers):
         content     — feedback text (required)
         round       — optional round number (defaults to current_round)
     """
-    data = json.loads(body) if body else {}
+    try:
+        data = json.loads(body) if body else {}
+    except (json.JSONDecodeError, ValueError):
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     discussion_id = params["id"]
-    participant = data.get("participant", "").strip()
-    content = data.get("content", "").strip()
+    participant = validate_text(data.get("participant"), 200, "Participant")
+    content = validate_text(data.get("content"), MAX_COMMENT_LENGTH, "Feedback content")
 
     if not participant:
         return 400, {"error": "Participant is required", "code": "VALIDATION_ERROR"}
     if not content:
         return 400, {"error": "Content is required", "code": "VALIDATION_ERROR"}
 
-    verdict = data.get("verdict", "").strip().lower()
-    if verdict not in ("approve", "conditional", "reject", ""):
+    verdict = validate_enum(data.get("verdict"), VALID_VERDICTS, default="")
+    if verdict is None:
         return 400, {"error": "Invalid verdict. Use: approve, conditional, reject", "code": "VALIDATION_ERROR"}
 
     conn = get_db()
@@ -314,33 +338,36 @@ def add_feedback(params, query, body, headers):
         conn.close()
         return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
 
+    # Visibility check: hidden discussions only accessible by their creator
+    if row["visibility"] != "public":
+        actor = get_actor_from_headers(headers) if is_authenticated(headers) else None
+        if not actor or actor != row["created_by"]:
+            conn.close()
+            return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
+
+    # Reject feedback on closed discussions (AB-RACE-001)
+    if row["status"] != "open":
+        conn.close()
+        return 400, {"error": "Discussion is not open for feedback", "code": "DISCUSSION_CLOSED"}
+
     # Use specified round or default to current round
     round_num = int(data.get("round", row["current_round"]))
     round_num = min(round_num, row["max_rounds"])
 
-    # Check if participant already submitted for this round
-    existing = conn.execute(
-        """SELECT id FROM discussion_feedback
-           WHERE discussion_id = ? AND round = ? AND participant = ?""",
-        (discussion_id, round_num, participant),
-    ).fetchone()
-
-    if existing:
-        # Update existing feedback
-        conn.execute(
-            """UPDATE discussion_feedback SET verdict = ?, content = ?, word_count = ?, created_at = datetime('now')
-               WHERE id = ?""",
-            (verdict, content, len(content.split()), existing["id"]),
-        )
-    else:
-        # Insert new feedback
-        feedback_id = gen_id()
-        conn.execute(
-            """INSERT INTO discussion_feedback (id, discussion_id, round, participant, role, verdict, content, word_count, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-            (feedback_id, discussion_id, round_num, participant,
-             data.get("role", ""), verdict, content, len(content.split())),
-        )
+    # Atomic upsert — eliminates race condition (AB-RACE-001)
+    feedback_id = gen_id()
+    conn.execute('''
+        INSERT INTO discussion_feedback (id, discussion_id, round, participant, role, verdict, content, word_count, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(discussion_id, round, participant) DO UPDATE SET
+            role = excluded.role,
+            verdict = excluded.verdict,
+            content = excluded.content,
+            word_count = excluded.word_count
+    ''', (
+        feedback_id, discussion_id, round_num, participant,
+        data.get("role", ""), verdict, content, len(content.split()),
+    ))
 
     # Update discussion's updated_at
     conn.execute(
@@ -377,6 +404,13 @@ def get_discussion_summary(params, query, body, headers):
     if not row:
         conn.close()
         return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
+
+    # Visibility check: hidden discussions only accessible by their creator
+    if row["visibility"] != "public":
+        actor = get_actor_from_headers(headers) if is_authenticated(headers) else None
+        if not actor or actor != row["created_by"]:
+            conn.close()
+            return 404, {"error": "Discussion not found", "code": "NOT_FOUND"}
 
     # Get all feedback grouped by round
     feedback_rows = conn.execute(

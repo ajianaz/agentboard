@@ -50,7 +50,7 @@ def webhook_task_update(params, query, body, headers):
     try:
         data = json.loads(body) if body else {}
     except (json.JSONDecodeError, TypeError):
-        return 400, {"error": "Invalid JSON body", "code": "INVALID_JSON"}
+        return 400, {"error": "Invalid JSON body", "code": "BAD_REQUEST"}
 
     # Validate required fields
     agent = str(data.get("agent", "")).strip()
