@@ -662,9 +662,18 @@ function showSetup(){
   const inp=document.getElementById('s-key');
   if(inp)inp.addEventListener('keydown',e=>{if(e.key==='Enter')doSetup()});
 }
+async function validateKey(key){
+  try{
+    const r=await fetch('/api/agents',{headers:{'Authorization':'Bearer '+key}});
+    return r.ok;
+  }catch(e){return false}
+}
 async function doSetup(){
   const key=document.getElementById('s-key').value.trim();
   if(!key){document.getElementById('s-err').textContent='API key required';return}
+  document.getElementById('s-err').textContent='Verifying…';
+  const ok=await validateKey(key);
+  if(!ok){document.getElementById('s-err').textContent='Invalid API key';localStorage.removeItem('ab_key');return}
   localStorage.setItem('ab_key',key);
   toast('Connected!','ok');
   updateAuthBadge();
@@ -674,6 +683,10 @@ async function sidebarAuth(){
   const inp=document.getElementById('sb-key-input');
   const key=inp?inp.value.trim():'';
   if(!key){toast('Enter an API key','warn');return}
+  inp.disabled=true;inp.placeholder='Verifying…';
+  const ok=await validateKey(key);
+  inp.disabled=false;inp.placeholder='API Key…';
+  if(!ok){toast('Invalid API key','err');localStorage.removeItem('ab_key');updateAuthBadge();return}
   localStorage.setItem('ab_key',key);
   toast('Authenticated ✓','ok');
   updateAuthBadge();
