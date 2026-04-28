@@ -186,10 +186,10 @@ def create_discussion(params, query, body, headers):
     participants_json = json.dumps(participants_raw) if isinstance(participants_raw, list) else str(participants_raw)
 
     conn.execute(
-        """INSERT INTO discussions (id, title, target_type, target_id, status, current_round, max_rounds, created_by, created_at, updated_at, context, participants, leader)
-           VALUES (?, ?, ?, ?, 'open', 1, ?, ?, datetime('now'), datetime('now'), ?, ?, ?)""",
+        """INSERT INTO discussions (id, title, target_type, target_id, status, current_round, max_rounds, visibility, created_by, created_at, updated_at, context, participants, leader)
+           VALUES (?, ?, ?, ?, 'open', 1, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, ?)""",
         (discussion_id, title, data.get("target_type", ""), data.get("target_id", ""),
-         max_rounds, actor,
+         max_rounds, validate_enum(data.get("visibility"), VALID_VISIBILITIES, default="public") or "public", actor,
          context, participants_json, leader),
     )
     conn.commit()

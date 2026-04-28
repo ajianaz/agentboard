@@ -199,8 +199,14 @@ def create_task(params, query, body, headers):
         return 400, {"error": title_err, "code": "VALIDATION_ERROR"}
 
     description = validate_text(data.get("description"), MAX_DESCRIPTION_LENGTH, "Task description")
-    status = validate_enum(data.get("status"), VALID_STATUSES, default="todo") or "todo"
-    priority = validate_enum(data.get("priority"), VALID_PRIORITIES, default="none") or "none"
+    status = validate_enum(data.get("status"), VALID_STATUSES)
+    if status is None and data.get("status"):
+        raise ValueError(f"Invalid status: {data['status']}")
+    status = status or "todo"
+    priority = validate_enum(data.get("priority"), VALID_PRIORITIES)
+    if priority is None and data.get("priority"):
+        raise ValueError(f"Invalid priority: {data['priority']}")
+    priority = priority or "none"
     assignee = validate_text(data.get("assignee"), 200, "assignee")
     tags = data.get("tags") or []
     due_date = validate_text(data.get("due_date"), 20, "due_date") or None
@@ -239,7 +245,7 @@ def create_task(params, query, body, headers):
             tags, position, due_date, started_at, completed_at, metadata, created_by)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
                    (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ? AND status = ?),
-                   ?, ?, ?, ?, ?, ?)""",
+                   ?, ?, ?, ?, ?)""",
         (task_id, project_id, parent_id, title, description, status, priority, assignee,
          json.dumps(tags), project_id, status, due_date, started_at, completed_at,
          json.dumps({}), created_by),

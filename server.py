@@ -155,7 +155,14 @@ class RequestHandler(BaseHTTPRequestHandler):
         if needs_auth:
             self.headers["x-auth-valid"] = "true"
         else:
-            self.headers["x-auth-valid"] = "false"
+            # For public routes, still validate auth if provided —
+            # handlers use x-auth-valid to decide visibility (e.g. hidden discussions)
+            if has_db_keys():
+                valid, _ = check_auth_multi(self.headers)
+            else:
+                api_key_hash = hash_key(get_or_create_api_key())
+                valid = check_auth(self.headers, api_key_hash)
+            self.headers["x-auth-valid"] = "true" if valid else "false"
 
         # API routes
         self._handle_api(method, path, query)
