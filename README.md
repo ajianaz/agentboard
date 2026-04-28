@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-v1.5.0-green.svg)](https://github.com/ajianaz/agentboard/releases)
+[![Version](https://img.shields.io/badge/version-v1.5.3-green.svg)](https://github.com/ajianaz/agentboard/releases)
 
 ## What is it?
 

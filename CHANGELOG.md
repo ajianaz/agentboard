@@ -4,6 +4,23 @@ All notable changes to AgentBoard are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.3] - 2026-04-28
+
+### Fixed
+- Validate API key against server before saving — prevents stale/invalid keys
+- Reorder public dashboard cards — Total, Done, Review, In Progress, To Do, Proposed
+
+## [1.5.2] - 2026-04-28
+
+### Added
+- **Review & To Do cards** on public dashboard — split overview into actionable views
+
+## [1.5.1] - 2026-04-27
+
+### Fixed
+- Docs: fix stale refs — schema v7, 54 endpoints, complete api_reference
+- CodeRabbit PR #105 — stale projSlug ref, hidden projects leak in public stats
+
 ## [1.5.0] - 2026-04-27
 
 ### Added
