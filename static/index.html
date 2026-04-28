@@ -1383,11 +1383,11 @@ async function renderPublicDashboard(app){
   // Quick stats
   h+=`<div class="pub-stats">`;
   h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ac)">${st.total||0}</div><div class="pub-stat-lbl">Total Tasks</div></div>`;
-  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:#6b7280">${st.todo||0}</div><div class="pub-stat-lbl">To Do</div></div>`;
-  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ac)">${st.in_progress||0}</div><div class="pub-stat-lbl">In Progress</div></div>`;
-  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--rev)">${st.review||0}</div><div class="pub-stat-lbl">Review</div></div>`;
-  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--warn)">${st.proposed||0}</div><div class="pub-stat-lbl">Proposed</div></div>`;
   h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ok)">${st.done||0}</div><div class="pub-stat-lbl">Done</div></div>`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--rev)">${st.review||0}</div><div class="pub-stat-lbl">Review</div></div>`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--ac)">${st.in_progress||0}</div><div class="pub-stat-lbl">In Progress</div></div>`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:#6b7280">${st.todo||0}</div><div class="pub-stat-lbl">To Do</div></div>`;
+  h+=`<div class="pub-stat"><div class="pub-stat-val" style="color:var(--warn)">${st.proposed||0}</div><div class="pub-stat-lbl">Proposed</div></div>`;
   h+=`</div>`;
   // Status Breakdown — horizontal stacked bar
   const segments=[
