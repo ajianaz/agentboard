@@ -17,6 +17,15 @@ from api import router
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _normalize_agent_fields(data: dict) -> dict:
+    """Enforce lowercase on agent id and name — prevents casing mismatches
+    between agents table, task assignees, and KPI agent_id columns."""
+    for key in ("id", "name"):
+        if key in data and isinstance(data[key], str):
+            data[key] = data[key].strip().lower()
+    return data
+
+
 def _parse_body(body: bytes) -> dict:
     """Safely parse JSON body, returning empty dict on empty/invalid input."""
     if not body:
@@ -65,6 +74,7 @@ def list_agents(params, query, body, headers):
 def create_agent(params, query, body, headers):
     data = _parse_body(body)
     actor = headers.get("x-actor", "owner")
+    _normalize_agent_fields(data)
 
     agent_id = (data.get("id") or "").strip()
     if not agent_id:
@@ -108,7 +118,7 @@ def create_agent(params, query, body, headers):
 
 @router.get("/api/agents/{id}")
 def get_agent(params, query, body, headers):
-    agent_id = params["id"]
+    agent_id = params["id"].lower()
     conn = get_db()
 
     row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
@@ -127,9 +137,10 @@ def get_agent(params, query, body, headers):
 
 @router.patch("/api/agents/{id}")
 def update_agent(params, query, body, headers):
-    agent_id = params["id"]
+    agent_id = params["id"].lower()  # normalize path param too
     data = _parse_body(body)
     actor = headers.get("x-actor", "owner")
+    _normalize_agent_fields(data)
 
     conn = get_db()
 
@@ -142,7 +153,7 @@ def update_agent(params, query, body, headers):
 
     # Name
     if "name" in data and data["name"] is not None:
-        new_name = str(data["name"]).strip()
+        new_name = str(data["name"]).strip().lower()  # already normalized, but be explicit
         if not new_name:
             conn.close()
             return 400, {"error": "Agent name cannot be empty", "code": "VALIDATION_ERROR"}
@@ -202,7 +213,7 @@ def update_agent(params, query, body, headers):
 
 @router.get("/api/agents/{id}/workload")
 def get_agent_workload(params, query, body, headers):
-    agent_id = params["id"]
+    agent_id = params["id"].lower()
     conn = get_db()
 
     # Verify agent exists

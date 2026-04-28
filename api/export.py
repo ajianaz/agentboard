@@ -183,7 +183,7 @@ def import_data(params, query, body, headers):
         # 1. Import agents (upsert by id) — no FK dependencies
         # ------------------------------------------------------------------
         for agent in export.get("agents") or []:
-            agent_id = agent.get("id")
+            agent_id = str(agent.get("id", "")).strip().lower()
             if not agent_id:
                 continue
             existing = conn.execute(
