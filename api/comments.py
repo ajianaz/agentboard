@@ -10,6 +10,7 @@ Endpoints:
 import json
 from db import get_db, gen_id
 from api import router
+from api.validation import validate_text, MAX_COMMENT_LENGTH
 
 
 # ---------------------------------------------------------------------------
@@ -17,13 +18,13 @@ from api import router
 # ---------------------------------------------------------------------------
 
 def _parse_body(body: bytes) -> dict:
-    """Safely parse JSON body, returning empty dict on empty/invalid input."""
+    """Safely parse JSON body. Returns empty dict on empty body, None on invalid JSON."""
     if not body:
         return {}
     try:
         return json.loads(body)
     except (json.JSONDecodeError, ValueError):
-        return {}
+        return None
 
 
 def _comment_row_to_dict(row) -> dict:
@@ -66,9 +67,11 @@ def list_task_comments(params, query, body, headers):
 def create_task_comment(params, query, body, headers):
     task_id = params["id"]
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
-    content = (data.get("content") or "").strip()
+    content = validate_text(data.get("content"), MAX_COMMENT_LENGTH, "Comment content")
     if not content:
         return 400, {"error": "Comment content is required", "code": "VALIDATION_ERROR"}
 
@@ -131,9 +134,11 @@ def list_page_comments(params, query, body, headers):
 def create_page_comment(params, query, body, headers):
     page_id = params["id"]
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
-    content = (data.get("content") or "").strip()
+    content = validate_text(data.get("content"), MAX_COMMENT_LENGTH, "Comment content")
     if not content:
         return 400, {"error": "Comment content is required", "code": "VALIDATION_ERROR"}
 

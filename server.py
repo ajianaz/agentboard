@@ -19,7 +19,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
-VERSION = "1.5.3"
+VERSION = "1.5.4"
 
 # Local imports
 from config import get_config
@@ -155,7 +155,14 @@ class RequestHandler(BaseHTTPRequestHandler):
         if needs_auth:
             self.headers["x-auth-valid"] = "true"
         else:
-            self.headers["x-auth-valid"] = "false"
+            # For public routes, still validate auth if provided —
+            # handlers use x-auth-valid to decide visibility (e.g. hidden discussions)
+            if has_db_keys():
+                valid, _ = check_auth_multi(self.headers)
+            else:
+                api_key_hash = hash_key(get_or_create_api_key())
+                valid = check_auth(self.headers, api_key_hash)
+            self.headers["x-auth-valid"] = "true" if valid else "false"
 
         # API routes
         self._handle_api(method, path, query)
@@ -203,7 +210,13 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _read_body(self) -> bytes:
         """Read the request body based on Content-Length header."""
+        MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB
         length = int(self.headers.get("content-length", 0))
+        if length > MAX_BODY_SIZE:
+            self._json_response(
+                {"error": "Request body too large", "code": "PAYLOAD_TOO_LARGE"}, 413
+            )
+            return b""
         return self.rfile.read(length) if length > 0 else b""
 
     def _json_response(self, data, status: int = 200):

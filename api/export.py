@@ -17,13 +17,13 @@ from api import router
 # ---------------------------------------------------------------------------
 
 def _parse_body(body: bytes) -> dict:
-    """Safely parse JSON body, returning empty dict on empty/invalid input."""
+    """Safely parse JSON body. Returns empty dict on empty body, None on invalid JSON."""
     if not body:
         return {}
     try:
         return json.loads(body)
     except (json.JSONDecodeError, ValueError):
-        return {}
+        return None
 
 
 def _row_to_dict(row, json_fields=()) -> dict:
@@ -170,6 +170,8 @@ def import_data(params, query, body, headers):
     Comments: always create new (remap target_id for tasks/pages).
     """
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     export = data.get("data")
     if not export or not isinstance(export, dict):
         return 400, {"error": "Request body must contain a 'data' field with export JSON",
@@ -183,7 +185,7 @@ def import_data(params, query, body, headers):
         # 1. Import agents (upsert by id) — no FK dependencies
         # ------------------------------------------------------------------
         for agent in export.get("agents") or []:
-            agent_id = agent.get("id")
+            agent_id = str(agent.get("id", "")).strip().lower()
             if not agent_id:
                 continue
             existing = conn.execute(

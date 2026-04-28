@@ -11,20 +11,30 @@ Endpoints:
 import json
 from db import get_db, gen_id
 from api import router
+from api.validation import validate_text, MAX_NAME_LENGTH
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _normalize_agent_fields(data: dict) -> dict:
+    """Enforce lowercase on agent id and name — prevents casing mismatches
+    between agents table, task assignees, and KPI agent_id columns."""
+    for key in ("id", "name"):
+        if key in data and isinstance(data[key], str):
+            data[key] = data[key].strip().lower()
+    return data
+
+
 def _parse_body(body: bytes) -> dict:
-    """Safely parse JSON body, returning empty dict on empty/invalid input."""
+    """Safely parse JSON body. Returns empty dict on empty body, None on invalid JSON."""
     if not body:
         return {}
     try:
         return json.loads(body)
     except (json.JSONDecodeError, ValueError):
-        return {}
+        return None
 
 
 def _agent_row_to_dict(row) -> dict:
@@ -64,17 +74,20 @@ def list_agents(params, query, body, headers):
 @router.post("/api/agents")
 def create_agent(params, query, body, headers):
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
+    _normalize_agent_fields(data)
 
-    agent_id = (data.get("id") or "").strip()
+    agent_id = validate_text(data.get("id"), 100, "Agent ID")
     if not agent_id:
         return 400, {"error": "Agent id is required", "code": "VALIDATION_ERROR"}
 
-    name = (data.get("name") or "").strip()
+    name = validate_text(data.get("name"), MAX_NAME_LENGTH, "Agent name")
     if not name:
         return 400, {"error": "Agent name is required", "code": "VALIDATION_ERROR"}
 
-    role = (data.get("role") or "").strip()
+    role = validate_text(data.get("role"), 200, "Agent role")
     avatar = (data.get("avatar") or "🤖").strip()
     color = (data.get("color") or "#3b82f6").strip()
     metadata = data.get("metadata") or {}
@@ -108,7 +121,7 @@ def create_agent(params, query, body, headers):
 
 @router.get("/api/agents/{id}")
 def get_agent(params, query, body, headers):
-    agent_id = params["id"]
+    agent_id = params["id"].lower()
     conn = get_db()
 
     row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
@@ -127,9 +140,12 @@ def get_agent(params, query, body, headers):
 
 @router.patch("/api/agents/{id}")
 def update_agent(params, query, body, headers):
-    agent_id = params["id"]
+    agent_id = params["id"].lower()  # normalize path param too
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
+    _normalize_agent_fields(data)
 
     conn = get_db()
 
@@ -142,7 +158,7 @@ def update_agent(params, query, body, headers):
 
     # Name
     if "name" in data and data["name"] is not None:
-        new_name = str(data["name"]).strip()
+        new_name = validate_text(str(data["name"]), MAX_NAME_LENGTH, "Agent name").lower()  # already normalized, but be explicit
         if not new_name:
             conn.close()
             return 400, {"error": "Agent name cannot be empty", "code": "VALIDATION_ERROR"}
@@ -150,7 +166,7 @@ def update_agent(params, query, body, headers):
 
     # Role
     if "role" in data and data["role"] is not None:
-        updates["role"] = str(data["role"]).strip()
+        updates["role"] = validate_text(data["role"], 200, "Agent role")
 
     # Avatar
     if "avatar" in data and data["avatar"] is not None:
@@ -202,7 +218,7 @@ def update_agent(params, query, body, headers):
 
 @router.get("/api/agents/{id}/workload")
 def get_agent_workload(params, query, body, headers):
-    agent_id = params["id"]
+    agent_id = params["id"].lower()
     conn = get_db()
 
     # Verify agent exists

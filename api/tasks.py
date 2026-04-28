@@ -12,6 +12,10 @@ Endpoints:
 import json
 from db import get_db, gen_id
 from api import router
+from api.validation import (
+    validate_enum, validate_title, validate_text,
+    VALID_STATUSES, VALID_PRIORITIES, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH,
+)
 from webhook import on_task_created, on_task_assigned, on_task_status_changed, on_task_comment
 
 
@@ -20,13 +24,13 @@ from webhook import on_task_created, on_task_assigned, on_task_status_changed, o
 # ---------------------------------------------------------------------------
 
 def _parse_body(body: bytes) -> dict:
-    """Safely parse JSON body, returning empty dict on empty/invalid input."""
+    """Safely parse JSON body. Returns empty dict on empty body, None on invalid JSON."""
     if not body:
         return {}
     try:
         return json.loads(body)
     except (json.JSONDecodeError, ValueError):
-        return {}
+        return None
 
 
 def _task_row_to_dict(row) -> dict:
@@ -174,6 +178,8 @@ def list_project_tasks(params, query, body, headers):
 def create_task(params, query, body, headers):
     slug = params["slug"]
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
     conn = get_db()
@@ -187,32 +193,36 @@ def create_task(params, query, body, headers):
     project_id = project["id"]
 
     # Validate title
-    title = (data.get("title") or "").strip()
-    if not title:
+    title, title_err = validate_title(data.get("title"), MAX_TITLE_LENGTH, "Task title")
+    if title_err:
         conn.close()
-        return 400, {"error": "Task title is required", "code": "VALIDATION_ERROR"}
+        return 400, {"error": title_err, "code": "VALIDATION_ERROR"}
 
-    description = (data.get("description") or "").strip()
-    status = (data.get("status") or "todo").strip()
-    priority = (data.get("priority") or "none").strip()
-    assignee = (data.get("assignee") or "").strip()
+    description = validate_text(data.get("description"), MAX_DESCRIPTION_LENGTH, "Task description")
+    status = validate_enum(data.get("status"), VALID_STATUSES)
+    if status is None and data.get("status"):
+        raise ValueError(f"Invalid status: {data['status']}")
+    status = status or "todo"
+    priority = validate_enum(data.get("priority"), VALID_PRIORITIES)
+    if priority is None and data.get("priority"):
+        raise ValueError(f"Invalid priority: {data['priority']}")
+    priority = priority or "none"
+    assignee = validate_text(data.get("assignee"), 200, "assignee")
     tags = data.get("tags") or []
-    due_date = (data.get("due_date") or "").strip() or None
-    parent_id = (data.get("parent_id") or "").strip() or None
+    due_date = validate_text(data.get("due_date"), 20, "due_date") or None
+    parent_id = validate_text(data.get("parent_id"), 20, "parent_id") or None
 
-    # Validate parent_id exists if provided
+    # Validate parent_id exists AND belongs to same project
     if parent_id:
-        parent = conn.execute("SELECT id FROM tasks WHERE id = ?", (parent_id,)).fetchone()
+        parent = conn.execute(
+            "SELECT id, project_id FROM tasks WHERE id = ?", (parent_id,)
+        ).fetchone()
         if not parent:
             conn.close()
             return 400, {"error": f"Parent task '{parent_id}' not found", "code": "VALIDATION_ERROR"}
-
-    # Determine position (append to end of status group)
-    pos_row = conn.execute(
-        "SELECT MAX(position) as max_pos FROM tasks WHERE project_id = ? AND status = ?",
-        (project_id, status),
-    ).fetchone()
-    position = (pos_row["max_pos"] or 0) + 1
+        if parent["project_id"] != project_id:
+            conn.close()
+            return 400, {"error": "Parent task must belong to the same project", "code": "VALIDATION_ERROR"}
 
     task_id = gen_id()
     created_by = (data.get("created_by") or actor).strip()
@@ -227,13 +237,17 @@ def create_task(params, query, body, headers):
         import datetime
         completed_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # Atomic position assignment: compute MAX+1 in the same statement as INSERT
+    # to prevent race conditions with concurrent task creation
     conn.execute(
         """INSERT INTO tasks
            (id, project_id, parent_id, title, description, status, priority, assignee,
             tags, position, due_date, started_at, completed_at, metadata, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ? AND status = ?),
+                   ?, ?, ?, ?, ?)""",
         (task_id, project_id, parent_id, title, description, status, priority, assignee,
-         json.dumps(tags), position, due_date, started_at, completed_at,
+         json.dumps(tags), project_id, status, due_date, started_at, completed_at,
          json.dumps({}), created_by),
     )
 
@@ -265,6 +279,8 @@ def create_task(params, query, body, headers):
 def update_task(params, query, body, headers):
     task_id = params["id"]
     data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
     actor = headers.get("x-actor", "owner")
 
     conn = get_db()
@@ -283,20 +299,23 @@ def update_task(params, query, body, headers):
 
     # Title
     if "title" in data and data["title"] is not None:
-        new_title = str(data["title"]).strip()
-        if not new_title:
+        new_title, title_err = validate_title(data["title"], MAX_TITLE_LENGTH, "Task title")
+        if title_err:
             conn.close()
-            return 400, {"error": "Task title cannot be empty", "code": "VALIDATION_ERROR"}
+            return 400, {"error": title_err, "code": "VALIDATION_ERROR"}
         updates["title"] = new_title
         detail_changes["title"] = new_title
 
     # Description
     if "description" in data and data["description"] is not None:
-        updates["description"] = str(data["description"]).strip()
+        updates["description"] = validate_text(data["description"], MAX_DESCRIPTION_LENGTH, "Task description")
 
     # Status — HITL transitions
     if "status" in data and data["status"] is not None:
-        new_status = str(data["status"]).strip()
+        new_status = validate_enum(data["status"], VALID_STATUSES)
+        if new_status is None:
+            conn.close()
+            return 400, {"error": f"Invalid status. Must be one of: {', '.join(sorted(VALID_STATUSES))}", "code": "VALIDATION_ERROR"}
         if new_status != old_status:
             updates["status"] = new_status
 
@@ -310,7 +329,11 @@ def update_task(params, query, body, headers):
 
     # Priority
     if "priority" in data and data["priority"] is not None:
-        updates["priority"] = str(data["priority"]).strip()
+        new_priority = validate_enum(data["priority"], VALID_PRIORITIES)
+        if new_priority is None:
+            conn.close()
+            return 400, {"error": f"Invalid priority. Must be one of: {', '.join(sorted(VALID_PRIORITIES))}", "code": "VALIDATION_ERROR"}
+        updates["priority"] = new_priority
 
     # Assignee
     if "assignee" in data and data["assignee"] is not None:

@@ -64,7 +64,7 @@ BASE_DIR = os.environ.get("DISCUSSION_BASE_DIR", "./discussions")
 os.makedirs(BASE_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-log = logging.getLogger("discussion")
+log = logging.getLogger(__name__)
 
 # Agent name → discussion role (generic examples)
 AGENT_ROLES = {
