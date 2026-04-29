@@ -19,7 +19,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
-VERSION = "1.5.4"
+VERSION = "1.6.0"
 
 # Local imports
 from config import get_config
@@ -390,11 +390,29 @@ def main():
     watcher = threading.Thread(target=_watcher, daemon=True)
     watcher.start()
 
+    # ── Feedback file watcher (optional, standalone feature) ──
+    fb_watcher = None
+    fb_cfg = cfg.get("feedback_watcher", {})
+    fb_dir = fb_cfg.get("directory", "")
+    if fb_cfg.get("enabled", False) and fb_dir:
+        from feedback_watcher import FeedbackWatcher
+        from config import _resolve_path
+        resolved_dir = _resolve_path(fb_dir)
+        fb_watcher = FeedbackWatcher(
+            db_path=db_path,
+            watch_dir=str(resolved_dir),
+            poll_interval=fb_cfg.get("poll_interval", 5),
+            enabled=True,
+        )
+        fb_watcher.start()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down.")
         kpi.stop()
+        if fb_watcher:
+            fb_watcher.stop()
         server.server_close()
 
 
