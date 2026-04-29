@@ -16,3 +16,4 @@ build/
 .sync_state.json
 agentboard.db.empty-backup
 agentboard.db.bak
+agentboard.toml
