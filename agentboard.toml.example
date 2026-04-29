@@ -52,5 +52,6 @@ retention_activity = 180
 
 [webhooks]
 enabled = false
-timeout = 10
+timeout = 5
+# agent_ports = { my_agent = 9001 }  # set explicitly when enabling webhooks
 # secret = "change-me-to-a-random-string"
