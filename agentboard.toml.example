@@ -1,0 +1,56 @@
+# ═══════════════════════════════════════════════════════
+# AgentBoard Configuration Template
+# ═══════════════════════════════════════════════════════
+#
+# Copy this file as agentboard.toml and customize:
+#   cp agentboard.toml.example agentboard.toml
+#
+# This file is OPTIONAL — AgentBoard works with defaults
+# if this file is missing.
+#
+# Priority (highest wins):
+#   1. CLI arguments (--port, --host, --config)
+#   2. Environment variables (AGENTBOARD_PORT, AGENTBOARD_HOST)
+#   3. agentboard.toml (this file)
+#   4. Built-in defaults
+#
+# ═══════════════════════════════════════════════════════
+
+[server]
+host = "0.0.0.0"
+port = 8765
+cors_origins = ["*"]
+proxy_prefix = ""
+log_requests = false
+
+[database]
+path = "agentboard.db"
+
+[auth]
+api_key_file = ".api_key"
+public_read = true
+public_get_routes = [
+    "/api/health",
+    "/api/projects",
+    "/api/tasks",
+    "/api/pages",
+    "/api/stats",
+    "/api/stats/public",
+    "/api/search",
+    "/api/discussions",
+]
+
+[features]
+export_enabled = true
+import_enabled = true
+
+[analytics]
+interval_seconds = 300
+retention_daily_kpi = 90
+retention_weekly_kpi = 365
+retention_activity = 180
+
+[webhooks]
+enabled = false
+timeout = 10
+# secret = "change-me-to-a-random-string"
