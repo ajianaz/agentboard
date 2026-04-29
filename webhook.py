@@ -27,17 +27,10 @@ from config import get_config
 
 logger = logging.getLogger(__name__)
 
-# Agent ID → gateway port mapping (Hermes fleet)
+# Agent ID → gateway port mapping
 # Override via config: webhooks.agent_ports in agentboard.toml
-DEFAULT_AGENT_PORTS = {
-    "zeko": 8648,
-    "cfo": 8645,
-    "cto": 8647,
-    "badsector": 8652,
-    "kai": 8650,
-    "sosmed": 8651,
-    "novelist": 8649,
-}
+# No defaults — users must configure their own agent ports when enabling webhooks.
+DEFAULT_AGENT_PORTS = {}
 
 
 def _get_agent_ports() -> dict:
@@ -64,7 +57,7 @@ def _get_webhook_secret() -> str:
     if secret:
         return secret
     # 3. .env file (host/dev mode)
-    env_path = "/opt/data/.env"
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     if os.path.exists(env_path):
         try:
             with open(env_path) as f:
