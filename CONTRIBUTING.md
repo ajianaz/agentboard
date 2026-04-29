@@ -16,7 +16,7 @@ ps aux | grep "server.py" | grep -v grep
 git stash && git checkout main
 
 # 3. Restart production from main, THEN checkout feature branch
-git checkout -b feat/my-feature main
+git checkout -b feat/my-feature develop
 ```
 
 `git checkout` changes working tree files that the running server uses. Switching branches without care can crash production or serve wrong code.
@@ -50,28 +50,67 @@ This ensures production database and API key are never affected by development.
 
 ## Branch Strategy
 
-- `main` — production releases. **NEVER push directly** — always via PR
-- `feature/*` — new features (branch from `main`, PR back to `main`)
-- `fix/*` — bug fixes (branch from `main`, PR back to `main`)
+```
+main     ← production releases (protected, PR-only)
+develop  ← integration branch (protected, PR-only)
+  ↑
+  ├── feat/xxx       ← feature branches (from develop, PR to develop)
+  ├── fix/xxx        ← bug fix branches (from develop, PR to develop)
+  ├── docs/xxx       ← documentation branches (from develop, PR to develop)
+  └── refactor/xxx   ← refactoring branches (from develop, PR to develop)
+```
+
+### Rules
+
+| Rule | Description |
+|------|-------------|
+| **2 permanent branches** | `main` and `develop` only — all others are temporary |
+| **NEVER push directly** to `main` or `develop` | Always via pull request |
+| **Feature branches from `develop`** | `git checkout -b feat/my-feature develop` |
+| **PR target is `develop`** | Features land in develop first, then release to main |
+| **Delete branch after merge** | Merged branches are deleted automatically |
+| **Prefix convention** | `feat/`, `fix/`, `docs/`, `refactor/`, `test/`, `chore/` |
+
+### Release Flow
+
+```
+develop  →  PR (release/vX.Y.Z)  →  main  →  GitHub Release + GHCR tag
+```
+
+1. Feature work accumulates on `develop`
+2. When ready, create a release PR: `develop` → `main`
+3. After merge, create GitHub Release with changelog
+4. CI builds and pushes Docker image to GHCR
 
 ## Pull Request Process
 
-1. Create issues + milestone before coding
-2. Create a branch from `main`: `git checkout -b feature/my-feature main`
-3. Update documentation **before** committing code changes
-4. Commit with conventional commits: `feat(api): add task filtering`
-5. Push and open PR against `main`
-6. Wait for review before merge
+1. **Create an issue** with milestone before coding
+2. **Branch from `develop`**: `git checkout -b feat/my-feature develop`
+3. **Make changes** — code, tests, docs
+4. **Run tests**: `python -m pytest tests/ -v`
+5. **Commit** with conventional commits (see below)
+6. **Push** and open PR against `develop`
+7. **Wait for review** (CodeRabbit + maintainer) before merge
+8. **Branch is deleted** after merge
 
 ## Commit Convention
 
 ```
-feat(scope): description     # New feature
-fix(scope): description      # Bug fix
-refactor(scope): description # Code change
-test(scope): description     # Tests
-docs(scope): description     # Documentation
-chore(scope): description    # Maintenance
+feat(scope): description      # New feature
+fix(scope): description       # Bug fix
+refactor(scope): description  # Code change without behavior change
+test(scope): description      # Tests
+docs(scope): description      # Documentation
+chore(scope): description     # Maintenance
+release(scope): description   # Release merge (develop → main)
+```
+
+**Examples:**
+```
+feat(webhooks): add file watcher for feedback ingestion
+fix(auth): validate API key against server before saving
+docs(readme): update Docker tag table
+release: v1.5.3 — auth validation and dashboard polish
 ```
 
 ## Code Style
