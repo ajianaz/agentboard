@@ -471,3 +471,67 @@ def get_discussion_summary(params, query, body, headers):
         "consensus": consensus,
         "total_feedback": len(feedback_rows),
     }
+
+
+# ── Feedback File Ingestion (standalone feature) ──
+
+@router.post("/api/discussions/ingest")
+def ingest_feedback_file(params, query, body, headers):
+    """Manually ingest a feedback file from disk into the database.
+
+    Body:
+        file_path (str, required) — absolute path to the feedback .md file
+
+    The file must follow the naming convention:
+        {discussion_id}/{agent}_{round}.md
+        {discussion_id}/round{N}/{agent}.md
+
+    Returns ingestion result.
+    """
+    if not is_authenticated(headers):
+        return 401, {"error": "Authentication required"}
+
+    data = body if isinstance(body, dict) else {}
+    file_path = data.get("file_path", "").strip()
+
+    if not file_path:
+        return 400, {"error": "file_path is required"}
+
+    try:
+        from feedback_watcher import FeedbackWatcher
+        from config import get_config
+        cfg = get_config()
+        db_path = cfg["database"]["path"]
+
+        watcher = FeedbackWatcher(
+            db_path=db_path,
+            watch_dir="",  # not used for manual ingest
+            enabled=False,
+        )
+        result = watcher.ingest_file(file_path)
+        return 200 if result["status"] == "ok" else 500, result
+    except Exception as e:
+        return 500, {"error": str(e)}
+
+
+@router.get("/api/discussions/watcher/status")
+def feedback_watcher_status(params, query, body, headers):
+    """Get feedback file watcher status (health check)."""
+    if not is_authenticated(headers):
+        return 401, {"error": "Authentication required"}
+
+    try:
+        from feedback_watcher import FeedbackWatcher
+        from config import get_config
+        cfg = get_config()
+        db_path = cfg["database"]["path"]
+
+        watcher = FeedbackWatcher(
+            db_path=db_path,
+            watch_dir=cfg.get("feedback_watcher", {}).get("directory", ""),
+            poll_interval=cfg.get("feedback_watcher", {}).get("poll_interval", 5),
+            enabled=cfg.get("feedback_watcher", {}).get("enabled", False),
+        )
+        return 200, watcher.status()
+    except Exception as e:
+        return 500, {"error": str(e)}

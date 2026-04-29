@@ -75,6 +75,11 @@ DEFAULTS = {
         "retention_weekly_kpi": 365,
         "retention_activity": 180,
     },
+    "feedback_watcher": {
+        "enabled": False,
+        "directory": "",  # absolute path, or relative to BASE_DIR; empty = disabled
+        "poll_interval": 5,
+    },
 }
 
 # Singleton — loaded once on first access
