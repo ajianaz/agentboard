@@ -328,9 +328,14 @@ def add_feedback(params, query, body, headers):
     if not content:
         return 400, {"error": "Content is required", "code": "VALIDATION_ERROR"}
 
-    verdict = validate_enum(data.get("verdict"), VALID_VERDICTS, default="")
-    if verdict is None:
-        return 400, {"error": "Invalid verdict. Use: approve, conditional, reject", "code": "VALIDATION_ERROR"}
+    # Validate verdict: if provided but invalid, reject. If absent/empty, allow.
+    raw_verdict = data.get("verdict")
+    if raw_verdict and raw_verdict.strip():
+        verdict = validate_enum(raw_verdict, VALID_VERDICTS, default=None)
+        if verdict is None:
+            return 400, {"error": "Invalid verdict. Use: approve, conditional, reject", "code": "VALIDATION_ERROR"}
+    else:
+        verdict = ""
 
     conn = get_db()
     row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()

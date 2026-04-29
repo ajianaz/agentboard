@@ -46,9 +46,9 @@ class TestAuth:
         assert validate_key("wrong-key", stored) is False
 
     def test_check_auth_no_hash(self):
-        """check_auth should return True when no stored hash (first-run)."""
+        """check_auth should return False when no stored hash (reject unauthenticated)."""
         from auth import check_auth
-        assert check_auth({}, "") is True
+        assert check_auth({}, "") is False
 
     def test_check_auth_with_bearer(self):
         """check_auth should validate Bearer token."""

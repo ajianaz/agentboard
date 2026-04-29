@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY server.py config.py db.py auth.py kpi_engine.py activity_logger.py onboard.py ./
+COPY server.py config.py db.py auth.py kpi_engine.py activity_logger.py onboard.py webhook.py ./
 COPY api/ ./api/
 COPY static/ ./static/
 COPY tools/ ./tools/
