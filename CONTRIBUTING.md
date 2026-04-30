@@ -135,6 +135,34 @@ Use GitHub Issues with the provided templates. Include:
 - Python version
 - Browser (if frontend issue)
 
+## Security Guidelines
+
+### Credential Handling
+
+- **NEVER** hardcode API keys, tokens, or secrets in source code
+- Use `.env` files (outside repo) or environment variables
+- `.api_key` file: `chmod 600`, `.gitignore` must include `.api_key` and `.env`
+- Webhook endpoints: validate input, sanitize error messages, rate-limit
+
+### Error Output
+
+- Use `cred_safe.sanitize()` or equivalent for all exception output
+- Never expose `str(exc)` or raw tracebacks in API responses
+- Log full details server-side, return generic messages client-side
+
+### Webhook Security
+
+- All webhook endpoints must validate required fields
+- Rate-limit per caller identity (agent_id or IP)
+- Never trust client-provided data for authorization decisions
+
+### Before Contributing
+
+1. Run `git log -p | grep -iE '(api.key|secret|password|token).*=.*['\''"]'` — ensure no leaked credentials in history
+2. Check `.gitignore` includes `.env`, `.api_key`, `*.db`, `__pycache__/`
+3. New endpoints: add input validation and rate limiting
+4. New dependencies: check for known CVEs, prefer stdlib
+
 ## Schema Migrations
 
 When adding database changes:
