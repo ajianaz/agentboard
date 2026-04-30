@@ -38,8 +38,8 @@ WHT = "\033[37m"
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-BOARD_URL = os.environ.get("AGENTBOARD_URL", "http://localhost:8765")
-BOARD_KEY = os.environ.get("AGENTBOARD_API_KEY", "")
+BOARD_URL = os.environ.get("AGENTBOARD_URL", os.environ.get("BOARD_URL", "http://localhost:8765"))
+BOARD_KEY = os.environ.get("AGENTBOARD_API_KEY", os.environ.get("BOARD_KEY", ""))
 
 
 def _api(path: str) -> dict:
