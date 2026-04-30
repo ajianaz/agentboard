@@ -72,6 +72,14 @@ DEFAULTS = {
         "directory": "",  # absolute path, or relative to BASE_DIR; empty = disabled
         "poll_interval": 5,
     },
+    "agents": {
+        # agent_id → project_slug mapping for auto-tracking
+        # Agent events will route to the corresponding project
+        # Unmapped agents go to a default "agent-tasks" project
+        # "zeko": "infrastructure",
+        # "kai": "content",
+        # "cto": "agentboard",
+    },
 }
 
 # Singleton — loaded once on first access
