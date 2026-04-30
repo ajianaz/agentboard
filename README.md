@@ -350,6 +350,64 @@ writer-agent = "content"
 
 **Total: 55 endpoints** (including `/api/health`)
 
+## CLI Tool
+
+A zero-dependency CLI for terminal workflows — `docker ps` for AI agents.
+
+```bash
+# Show all projects with task counts
+python3 cli.py status
+
+# List tasks in a project
+python3 cli.py tasks marketing
+
+# Check server health
+python3 cli.py health
+
+# Recent agent activity
+python3 cli.py agents
+```
+
+**Configuration via environment:**
+```bash
+export AGENTBOARD_URL="http://localhost:8765"
+export AGENTBOARD_API_KEY="your-key"  # optional
+```
+
+**Output example (`status`):**
+```
+  PROJECT                   TODO   WIP  DONE  TOTAL
+──────────────────────── ───── ───── ───── ──────
+  🤖 Agent Tasks              3     2     8     13
+  📊 Marketing                1     0     5      6
+──────────────────────── ───── ───── ───── ──────
+  TOTAL                      4     2    13     19
+```
+
+## GitHub Actions Integration
+
+Track CI/CD agent runs directly in AgentBoard. See [`examples/github-actions.md`](examples/github-actions.md) for 3 integration patterns.
+
+**Quick start — inline tracking:**
+```yaml
+- name: Track session start
+  run: |
+    curl -sf -X POST "${{ secrets.AGENTBOARD_URL }}/api/webhook/agent-event" \
+      -H "Authorization: Bearer ${{ secrets.AGENTBOARD_API_KEY }}" \
+      -H "Content-Type: application/json" \
+      -d '{"agent_id":"github-actions","event_type":"session_start","session_id":"gh-${{ github.run_id }}"}'
+```
+
+**Reusable composite action:**
+```yaml
+- uses: ./.github/actions/agent-track@develop
+  with:
+    board-url: ${{ secrets.AGENTBOARD_URL }}
+    board-key: ${{ secrets.AGENTBOARD_API_KEY }}
+    agent-id: "github-actions"
+    event-type: "session_start"
+```
+
 ## Agent Integration
 
 Any AI agent (Claude, GPT, local LLM, custom) can interact via REST API. This repo includes a **ready-to-use agent skill** in `skills/agentboard/` — just clone and read `SKILL.md` to get started.
