@@ -289,11 +289,58 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 
 **Note:** `/api/setup` is a one-time endpoint — it can only be called once after the database is created. To add additional projects afterward, use `POST /api/projects`.
 
-### Webhook (1 endpoint)
+### Webhooks (2 endpoints)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/webhook/task` | Receive external task updates (HMAC-signed) |
+| POST | `/api/webhook/task-update` | Update existing task status (agent-driven) |
+| POST | `/api/webhook/agent-event` | Auto-track agent sessions as tasks |
+
+#### Auto-Tracking (`/api/webhook/agent-event`)
+
+Framework-agnostic endpoint that any AI agent can POST to. Automatically creates and manages tasks based on agent lifecycle events.
+
+```bash
+# Agent starts a session → auto-create task
+curl -X POST http://localhost:8765/api/webhook/agent-event \
+  -H "Authorization: Bearer ***" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "research-agent",
+    "event_type": "session_start",
+    "session_id": "unique-session-abc123",
+    "message": "Research competitor pricing strategies"
+  }'
+
+# Agent finishes → auto-mark task as done
+curl -X POST http://localhost:8765/api/webhook/agent-event \
+  -H "Authorization: Bearer ***" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "research-agent",
+    "event_type": "session_end",
+    "session_id": "unique-session-abc123"
+  }'
+```
+
+**Event types:** `session_start`, `session_end`, `task_start`, `task_end`
+
+**Features:**
+- 🔁 **Dedup** — same `session_id` updates existing task instead of creating duplicate
+- 🚫 **Cron filter** — sessions starting with `cron_` are ignored
+- ⏱️ **Rate limit** — 60 requests/minute per agent
+- 🏷️ **Auto-tag** — tasks get `["auto-tracked"]` tag
+- 📋 **Activity log** — every create/update/complete is logged
+
+**Agent → project routing** (config `agentboard.toml`):
+```toml
+[agents]
+research-agent = "research"
+writer-agent = "content"
+# Unmapped agents → default "Agent Tasks" project
+```
+
+**Compatible with:** CrewAI, LangGraph, AutoGen, Claude Code, Pi, Hermes, or any framework that can `POST` JSON.
 
 ### Public Stats (1 endpoint)
 
@@ -301,7 +348,65 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 |--------|------|-------------|
 | GET | `/api/stats/public` | Anonymized board statistics |
 
-**Total: 54 endpoints** (including `/api/health`)
+**Total: 55 endpoints** (including `/api/health`)
+
+## CLI Tool
+
+A zero-dependency CLI for terminal workflows — `docker ps` for AI agents.
+
+```bash
+# Show all projects with task counts
+python3 cli.py status
+
+# List tasks in a project
+python3 cli.py tasks marketing
+
+# Check server health
+python3 cli.py health
+
+# Recent agent activity
+python3 cli.py agents
+```
+
+**Configuration via environment:**
+```bash
+export AGENTBOARD_URL="http://localhost:8765"
+export AGENTBOARD_API_KEY="your-key"  # optional
+```
+
+**Output example (`status`):**
+```
+  PROJECT                   TODO   WIP  DONE  TOTAL
+──────────────────────── ───── ───── ───── ──────
+  🤖 Agent Tasks              3     2     8     13
+  📊 Marketing                1     0     5      6
+──────────────────────── ───── ───── ───── ──────
+  TOTAL                      4     2    13     19
+```
+
+## GitHub Actions Integration
+
+Track CI/CD agent runs directly in AgentBoard. See [`examples/github-actions.md`](examples/github-actions.md) for 3 integration patterns.
+
+**Quick start — inline tracking:**
+```yaml
+- name: Track session start
+  run: |
+    curl -sf -X POST "${{ secrets.AGENTBOARD_URL }}/api/webhook/agent-event" \
+      -H "Authorization: Bearer ${{ secrets.AGENTBOARD_API_KEY }}" \
+      -H "Content-Type: application/json" \
+      -d '{"agent_id":"github-actions","event_type":"session_start","session_id":"gh-${{ github.run_id }}"}'
+```
+
+**Reusable composite action:**
+```yaml
+- uses: ./.github/actions/agent-track@develop
+  with:
+    board-url: ${{ secrets.AGENTBOARD_URL }}
+    board-key: ${{ secrets.AGENTBOARD_API_KEY }}
+    agent-id: "github-actions"
+    event-type: "session_start"
+```
 
 ## Agent Integration
 

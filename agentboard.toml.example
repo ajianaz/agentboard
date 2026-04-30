@@ -55,3 +55,14 @@ enabled = false
 timeout = 5
 # agent_ports = { my_agent = 9001 }  # set explicitly when enabling webhooks
 # secret = "change-me-to-a-random-string"
+
+# ── Agent Auto-Tracking ────────────────────────────────────
+# Maps agent_id → project_slug for auto-tracked tasks.
+# POST /api/webhook/agent-event routes tasks to these projects.
+# Unmapped agents go to a default "agent-tasks" project.
+[agents]
+# zeko = "infrastructure"
+# kai = "content"
+# cto = "agentboard"
+# sosmed = "marketing"
+# cfo = "finance"

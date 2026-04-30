@@ -1,0 +1,68 @@
+name: 'AgentBoard Track'
+description: 'Post agent lifecycle events to AgentBoard webhook'
+inputs:
+  board-url:
+    description: 'AgentBoard base URL (e.g. https://board.example.com)'
+    required: true
+  board-key:
+    description: 'AgentBoard API key'
+    required: true
+  agent-id:
+    description: 'Agent identifier (maps to [agents] in agentboard.toml)'
+    required: false
+    default: 'github-actions'
+  event-type:
+    description: 'Event type: session_start, session_end, task_start, task_end'
+    required: false
+    default: 'session_start'
+  session-id:
+    description: 'Unique session identifier (used for dedup)'
+    required: false
+    default: ${{ github.run_id }}
+  message:
+    description: 'Task description or session summary'
+    required: false
+    default: 'GitHub Actions run'
+  metadata:
+    description: 'Additional metadata as JSON string'
+    required: false
+    default: '{}'
+
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        BOARD_URL: ${{ inputs.board-url }}
+        BOARD_KEY: ${{ inputs.board-key }}
+      run: |
+        PAYLOAD=$(jq -n \
+          --arg agent_id "${{ inputs.agent-id }}" \
+          --arg event_type "${{ inputs.event-type }}" \
+          --arg session_id "${{ inputs.session-id }}" \
+          --arg message "${{ inputs.message }}" \
+          --argjson metadata '${{ inputs.metadata }}' \
+          '{
+            agent_id: $agent_id,
+            event_type: $event_type,
+            session_id: $session_id,
+            message: $message,
+            metadata: $metadata
+          }')
+
+        RESPONSE=$(curl -sf -w "\n%{http_code}" -X POST "${BOARD_URL}/api/webhook/agent-event" \
+          -H "Authorization: Bearer ${BOARD_KEY}" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD" 2>&1)
+
+        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "✅ Tracked: ${{ inputs.event-type }} from ${{ inputs.agent-id }} (session: ${{ inputs.session-id }})"
+        elif [ "$HTTP_CODE" = "201" ]; then
+          echo "✅ Created: ${{ inputs.event-type }} from ${{ inputs.agent-id }} (session: ${{ inputs.session-id }})"
+        else
+          echo "⚠️ AgentBoard responded with HTTP $HTTP_CODE"
+          echo "$BODY"
+        fi
