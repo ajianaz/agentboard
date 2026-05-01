@@ -82,7 +82,11 @@ Open **http://localhost:8765** — done.
 |-----|-------------|
 | `latest` | Stable release (main branch) |
 | `develop` | Bleeding edge (develop branch) |
-| `v1.0.0` | Version pin |
+| `v1.5.3` | Latest stable |
+| `v1.5.0` | Standalone webhooks, docs hub, page visibility |
+| `v1.4.0` | Standalone tools, agent sync, public readiness |
+| `v1.3.0` | Analytics engine, discussion system, CI |
+| `v1.0.0` | Initial release |
 
 ### Option C: Docker (build from source)
 

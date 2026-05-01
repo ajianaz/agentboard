@@ -17,7 +17,3 @@ build/
 agentboard.db.empty-backup
 agentboard.db.bak
 agentboard.toml
-
-# Pi + BMAD (local dev tools)
-.pi/
-_bmad/
