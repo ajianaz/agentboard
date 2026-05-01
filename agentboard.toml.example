@@ -52,5 +52,16 @@ retention_activity = 180
 
 [webhooks]
 enabled = false
-timeout = 10
+timeout = 5
 # secret = "change-me-to-a-random-string"
+
+# ── Agent Auto-Tracking ────────────────────────────────────
+# Maps agent_id → project_slug for auto-tracked tasks.
+# POST /api/webhook/agent-event routes tasks to these projects.
+# Unmapped agents go to a default "agent-tasks" project.
+[agents]
+# zeko = "infrastructure"
+# kai = "content"
+# cto = "agentboard"
+# sosmed = "marketing"
+# cfo = "finance"

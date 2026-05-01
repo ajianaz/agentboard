@@ -59,21 +59,26 @@ DEFAULTS = {
     "webhooks": {
         "enabled": False,
         "timeout": 5,
-        "agent_ports": {
-                "zeko": 8648,
-                "cfo": 8645,
-                "cto": 8647,
-                "badsector": 8652,
-                "kai": 8650,
-                "sosmed": 8651,
-                "novelist": 8649,
-            },
+        "agent_ports": {},
     },
     "analytics": {
         "interval_seconds": 300,
         "retention_daily_kpi": 90,
         "retention_weekly_kpi": 365,
         "retention_activity": 180,
+    },
+    "feedback_watcher": {
+        "enabled": False,
+        "directory": "",  # absolute path, or relative to BASE_DIR; empty = disabled
+        "poll_interval": 5,
+    },
+    "agents": {
+        # agent_id → project_slug mapping for auto-tracking
+        # Agent events will route to the corresponding project
+        # Unmapped agents go to a default "agent-tasks" project
+        # "zeko": "infrastructure",
+        # "kai": "content",
+        # "cto": "agentboard",
     },
 }
 

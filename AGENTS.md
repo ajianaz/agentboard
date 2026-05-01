@@ -739,6 +739,84 @@ curl -X POST http://localhost:8765/api/import \
 ```
 
 
+
+### Webhooks
+
+#### Task Update (`POST /api/webhook/task-update`)
+
+Update an existing task's status without full API access. Fuzzy-matches task by title prefix.
+
+```json
+{
+  "agent": "cto",
+  "task_ref": "I-025",
+  "status": "in_progress",
+  "detail": "Working on the fix..."
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `agent` | ✅ | Agent name (for activity log) |
+| `task_ref` | ✅ | Task title prefix to match |
+| `status` | ✅ | `todo`, `proposed`, `in_progress`, `review`, `done` |
+| `detail` | ❌ | Optional detail for activity log |
+
+**Rate limit:** 60 requests/minute per agent.
+
+#### Agent Event — Auto-Tracking (`POST /api/webhook/agent-event`)
+
+Framework-agnostic endpoint for automatic task creation and lifecycle tracking. Any AI agent framework (CrewAI, LangGraph, AutoGen, Claude Code, Pi, Hermes, etc.) can POST lifecycle events here.
+
+```json
+{
+  "agent_id": "research-agent",
+  "event_type": "session_start",
+  "session_id": "unique-session-id",
+  "message": "Research competitor pricing",
+  "metadata": { "source": "crew", "run_id": "abc" }
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `agent_id` | ✅ | Unique agent identifier |
+| `event_type` | ✅ | `session_start`, `session_end`, `task_start`, `task_end` |
+| `session_id` | ❌ | Session identifier (used for dedup) |
+| `message` | ❌ | First message or task summary (becomes task title) |
+| `metadata` | ❌ | Freeform metadata object |
+
+**Behavior:**
+- `session_start` / `task_start` → creates task with status `in_progress` (or updates if `session_id` matches existing)
+- `session_end` / `task_end` → marks matching task as `done`
+- Same `session_id` → updates existing task (no duplicate)
+- `session_id` starting with `cron_` → ignored (skip scheduled tasks)
+- Unmapped `agent_id` → tasks go to default "Agent Tasks" project
+
+**Agent → project routing** (`agentboard.toml`):
+```toml
+[agents]
+research-agent = "research"
+writer-agent = "content"
+code-agent = "development"
+```
+
+**Integration examples:**
+```python
+# CrewAI
+requests.post(BOARD_URL + "/api/webhook/agent-event", json={
+    "agent_id": agent.name, "event_type": "task_start",
+    "session_id": crew_id, "message": task.description
+})
+
+# LangGraph
+def on_chain_start(inputs):
+    requests.post(BOARD_URL + "/api/webhook/agent-event", json={
+        "agent_id": "langgraph-agent", "event_type": "session_start",
+        "session_id": thread_id, "message": inputs.get("message", "")[:80]
+    })
+```
+
 ### Health Check
 
 | Method | Path | Description |

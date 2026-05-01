@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import sys
 from urllib.parse import parse_qs
 
 
@@ -57,7 +58,8 @@ class Router:
                 except (ValueError, KeyError, TypeError, sqlite3.OperationalError) as e:
                     return 400, {"error": "Invalid request", "code": "BAD_REQUEST", "detail": str(e)}
                 except Exception as e:
-                    return 500, {"error": "Internal server error", "code": "INTERNAL_ERROR"}
+                    import traceback as _tb; _tb.print_exc(file=sys.stderr)
+                    return 500, {"error": "Internal server error", "code": "INTERNAL_ERROR", "detail": str(type(e).__name__)}
         return None
 
     def _match(self, pattern: str, path: str) -> dict | None:
