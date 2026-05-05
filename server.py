@@ -13,6 +13,7 @@ Usage:
 
 import json
 import os
+import queue
 import sys
 import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -102,6 +103,16 @@ class RequestHandler(BaseHTTPRequestHandler):
         # Health check — always accessible, no auth, no maintenance block
         if path == "/api/health":
             self._handle_health()
+            return
+
+        # SSE event stream — accessible with auth (GET), no maintenance block
+        if path == "/api/events" and method == "GET":
+            self._handle_sse()
+            return
+
+        # PWA manifest — no auth needed
+        if path == "/manifest.json":
+            self._serve_file(STATIC_DIR / "manifest.json", "application/manifest+json")
             return
 
         # Maintenance mode — block all write operations
@@ -304,6 +315,48 @@ class RequestHandler(BaseHTTPRequestHandler):
         cfg = get_config()
         if cfg["server"]["log_requests"]:
             sys.stderr.write(f"[AgentBoard] {self.address_string()} - {format % args}\n")
+
+    def _handle_sse(self):
+        """Handle Server-Sent Events endpoint for real-time board updates.
+
+        Streams events to the client. Each event is formatted as:
+            event: <type>
+            data: <JSON payload>
+
+        Automatically sends buffered events for catch-up, then streams new events.
+        Connection is kept alive with 15-second heartbeat comments.
+        """
+        from event_bus import subscribe, unsubscribe, get_buffer
+
+        self.send_response(200)
+        self._send_cors_headers()
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        q = subscribe()
+        try:
+            # Send buffered events first (catch-up)
+            for msg in get_buffer():
+                self.wfile.write(msg.encode("utf-8"))
+            self.wfile.flush()
+
+            # Stream new events with heartbeat
+            while True:
+                try:
+                    msg = q.get(timeout=15)
+                    self.wfile.write(msg.encode("utf-8"))
+                    self.wfile.flush()
+                except queue.Empty:
+                    # Heartbeat — keep connection alive
+                    self.wfile.write(b": heartbeat\n\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            unsubscribe(q)
 
 
 def main():

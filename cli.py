@@ -9,6 +9,11 @@ Usage:
     python3 cli.py tasks marketing     # Tasks in a project
     python3 cli.py health              # Server health check
     python3 cli.py agents              # Recent agent activity
+    python3 cli.py plans               # List plans
+    python3 cli.py task-create proj --title "Fix bug" --priority high
+    python3 cli.py task-update ID --status done
+    python3 cli.py discussions         # Recent discussions
+    python3 cli.py --json status       # Raw JSON output (any list command)
 
 Environment:
     AGENTBOARD_URL  — Board URL (default: http://localhost:8765)
@@ -61,14 +66,14 @@ def _api(path: str) -> dict:
         raise SystemExit(f"{RED}Timeout{RST} — server at {BOARD_URL} did not respond")
 
 
-def _api_post(path: str, data: dict | None = None) -> dict:
+def _api_post(path: str, data: dict | None = None, method: str = "POST") -> dict:
     """POST/PATCH request to AgentBoard API. Returns parsed JSON or raises."""
     url = f"{BOARD_URL}{path}"
     headers = {"Content-Type": "application/json"}
     if BOARD_KEY:
         headers["Authorization"] = f"Bearer {BOARD_KEY}"
     payload = json.dumps(data).encode() if data else b""
-    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    req = urllib.request.Request(url, data=payload, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             return json.loads(resp.read().decode())
@@ -78,6 +83,15 @@ def _api_post(path: str, data: dict | None = None) -> dict:
 
 
 # ── Formatters ───────────────────────────────────────────────────────────────
+
+def _maybe_json(args, endpoint: str | None):
+    """If --json flag is set, fetch and print raw JSON. Returns True if handled."""
+    if not args.json:
+        return False
+    data = _api(endpoint)
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+    return True
+
 
 def _ago(iso: str) -> str:
     """Human-readable relative time from ISO timestamp."""
@@ -134,8 +148,10 @@ def _pad(s: str, width: int) -> str:
 
 # ── Commands ─────────────────────────────────────────────────────────────────
 
-def cmd_status(_args):
+def cmd_status(args):
     """Show all projects with task counts — like docker ps."""
+    if _maybe_json(args, "/api/projects"):
+        return
     data = _api("/api/projects")
     projects = data if isinstance(data, list) else data.get("projects", [])
 
@@ -176,8 +192,10 @@ def cmd_status(_args):
 
 def cmd_tasks(args):
     """List tasks in a project."""
-    slug = args.project
-    data = _api(f"/api/projects/{slug}/tasks")
+    endpoint = f"/api/projects/{args.project}/tasks"
+    if _maybe_json(args, endpoint):
+        return
+    data = _api(endpoint)
     tasks = data if isinstance(data, list) else data.get("tasks", [])
 
     if not tasks:
@@ -207,8 +225,10 @@ def cmd_tasks(args):
     print(f"\n  {summary}  {DIM}({len(tasks)} tasks){RST}\n")
 
 
-def cmd_health(_args):
+def cmd_health(args):
     """Check AgentBoard server health."""
+    if _maybe_json(args, "/api/health"):
+        return
     data = _api("/api/health")
     status = data.get("status", "unknown")
     version = data.get("version", "?")
@@ -224,8 +244,10 @@ def cmd_health(_args):
     print(f"  {DIM}{BOARD_URL}{RST}\n")
 
 
-def cmd_agents(_args):
+def cmd_agents(args):
     """Show recent agent activity."""
+    if _maybe_json(args, "/api/activity?limit=20"):
+        return
     data = _api("/api/activity?limit=20")
     activities = data if isinstance(data, list) else data.get("activities", [])
 
@@ -268,7 +290,10 @@ def cmd_plans(args):
     if args.status:
         params.append(f"status={args.status}")
     qs = f"?{'&'.join(params)}" if params else ""
-    data = _api(f"/api/plans{qs}")
+    endpoint = f"/api/plans{qs}"
+    if _maybe_json(args, endpoint):
+        return
+    data = _api(endpoint)
     plans = data if isinstance(data, list) else data.get("plans", [])
 
     if not plans:
@@ -424,6 +449,95 @@ def cmd_plan_execute(args):
     print(f"  {YLW}▶{RST} Plan {CYN}{args.plan_id[:8]}{RST} — {_status_color(status)}{_status_icon(status)} {status}{RST}\n")
 
 
+# ── Task CRUD Commands ────────────────────────────────────────────────────
+
+def cmd_task_create(args):
+    """Create a new task in a project."""
+    title = args.title or input("Title: ").strip()
+    if not title:
+        raise SystemExit(f"{RED}Title is required.{RST}")
+
+    payload = {
+        "title": title,
+        "description": args.description or "",
+        "status": args.status or "todo",
+        "priority": args.priority or "none",
+        "assignee": args.assignee or "",
+        "type": args.type or "",
+        "tags": [t.strip() for t in args.tags.split(",")] if args.tags else [],
+        "git_branch": args.branch or "",
+    }
+    if args.parent:
+        payload["parent_id"] = args.parent
+
+    data = _api_post(f"/api/projects/{args.project}/tasks", payload)
+    task = data.get("task", data)
+    tid = task.get("id", data.get("id", "?"))
+    status = task.get("status", payload["status"])
+    print(f"  {GRN}✓{RST} Task {CYN}{tid}{RST} created — {_status_color(status)}{_status_icon(status)} {status}{RST}")
+    if args.branch:
+        print(f"  {DIM}Branch: {args.branch}{RST}")
+    print()
+
+
+def cmd_task_update(args):
+    """Update a task (status, assignee, etc)."""
+    payload = {}
+    if args.status:
+        payload["status"] = args.status
+    if args.assignee is not None:
+        payload["assignee"] = args.assignee
+    if args.priority:
+        payload["priority"] = args.priority
+    if args.branch is not None:
+        payload["git_branch"] = args.branch
+    if args.title:
+        payload["title"] = args.title
+    if args.description is not None:
+        payload["description"] = args.description
+
+    if not payload:
+        raise SystemExit(f"{RED}No fields to update. Use --status, --assignee, --priority, --branch, or --title.{RST}")
+
+    _api_post(f"/api/tasks/{args.task_id}", payload, method="PATCH")
+    print(f"  {GRN}✓{RST} Task {CYN}{args.task_id}{RST} updated\n")
+
+
+def cmd_discussions(args):
+    """List recent discussions."""
+    params = []
+    if args.project:
+        params.append(f"project={args.project}")
+    qs = f"?{'&'.join(params)}" if params else ""
+    endpoint = f"/api/discussions{qs}"
+    if _maybe_json(args, endpoint):
+        return
+    data = _api(endpoint)
+    discussions = data if isinstance(data, list) else data.get("discussions", [])
+
+    if not discussions:
+        print(f"{DIM}No discussions found.{RST}\n")
+        return
+
+    print(f"\n{CYN}{BOLD}{'ID':>10}  {'STATUS':<12} {'TASK':<10} {'AGENT':<10} {'MESSAGES':>8}  {'CREATED'}{RST}")
+    print(f"{DIM}{'─' * 10}  {'─' * 12} {'─' * 10} {'─' * 10} {'─' * 8}  {'─' * 12}{RST}")
+
+    for d in discussions:
+        did = d.get("id", "?")[:8]
+        status = d.get("status", "open")
+        task = d.get("task_id", "")[:8] or "—"
+        agent = d.get("agent", d.get("created_by", ""))[:9]
+        msgs = d.get("message_count", len(d.get("messages", [])))
+        created = d.get("created_at", "")[:10]
+
+        c = _status_color(status)
+        icon = _status_icon(status)
+        slabel = f"{icon} {status}"
+        print(f"  {WHT}{did:>9}  {c}{slabel:<12}{RST} {task:<10} {BLU}{agent:<10}{RST} {msgs:>8}  {DIM}{created}{RST}")
+
+    print(f"\n  {DIM}Showing {len(discussions)} discussions{RST}\n")
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main():
@@ -435,6 +549,7 @@ def main():
     )
     parser.add_argument("--url", default=BOARD_URL, help="AgentBoard URL")
     parser.add_argument("--key", default="", help="API key")
+    parser.add_argument("--json", action="store_true", help="Output raw JSON instead of formatted text")
 
     sub = parser.add_subparsers(dest="command")
 
@@ -472,6 +587,32 @@ def main():
     p_plan_execute = sub.add_parser("plan-execute", help="Execute an approved plan")
     p_plan_execute.add_argument("plan_id", help="Plan ID")
 
+    # ── Task CRUD subcommands ──
+    p_task_create = sub.add_parser("task-create", help="Create a new task")
+    p_task_create.add_argument("project", help="Project slug")
+    p_task_create.add_argument("--title", default="", help="Task title (or prompt)")
+    p_task_create.add_argument("-d", "--description", default="", help="Task description")
+    p_task_create.add_argument("--status", default="todo", help="Initial status (default: todo)")
+    p_task_create.add_argument("--priority", default="none", help="Priority (critical/high/medium/low/none)")
+    p_task_create.add_argument("--assignee", default="", help="Assignee agent name")
+    p_task_create.add_argument("--type", default="", help="Task type (task/bug/feature/chore/mission/slice)")
+    p_task_create.add_argument("--tags", default="", help="Comma-separated tags")
+    p_task_create.add_argument("--branch", default="", help="Git branch name")
+    p_task_create.add_argument("--parent", default="", help="Parent task ID (for subtasks)")
+
+    p_task_update = sub.add_parser("task-update", help="Update a task")
+    p_task_update.add_argument("task_id", help="Task ID")
+    p_task_update.add_argument("--status", help="New status")
+    p_task_update.add_argument("--assignee", default=None, help="New assignee (empty string to clear)")
+    p_task_update.add_argument("--priority", help="New priority")
+    p_task_update.add_argument("--branch", default=None, help="Git branch (empty string to clear)")
+    p_task_update.add_argument("--title", help="New title")
+    p_task_update.add_argument("--description", default=None, help="New description (empty string to clear)")
+
+    # ── Discussion subcommand ──
+    p_disc = sub.add_parser("discussions", help="List discussions")
+    p_disc.add_argument("--project", default="", help="Filter by project slug")
+
     args = parser.parse_args()
 
     # Allow global --url/--key override
@@ -489,6 +630,9 @@ def main():
         "plan-approve": cmd_plan_approve,
         "plan-reject": cmd_plan_reject,
         "plan-execute": cmd_plan_execute,
+        "task-create": cmd_task_create,
+        "task-update": cmd_task_update,
+        "discussions": cmd_discussions,
     }
 
     if not args.command:
