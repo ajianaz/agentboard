@@ -72,6 +72,13 @@ DEFAULTS = {
         "directory": "",  # absolute path, or relative to BASE_DIR; empty = disabled
         "poll_interval": 5,
     },
+    "planning": {
+        # Controls plan auto-generation and workflow behavior
+        "auto_create_on_complex_task": False,  # auto-create plan when task has type=mission
+        "require_approval": True,               # plans must be approved before executing
+        "max_steps": 50,                        # max steps per plan
+        "default_assignee": "",                 # fallback assignee if not specified
+    },
     "agents": {
         # agent_id → project_slug mapping for auto-tracking
         # Agent events will route to the corresponding project
