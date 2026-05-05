@@ -335,6 +335,38 @@ select{appearance:auto}
 .vis-badge{font-size:11px;flex-shrink:0;opacity:.7;user-select:none;line-height:1}
 .vis-badge.pub{color:var(--ok)}
 .vis-badge.hid{color:var(--t2)}
+
+/* Task type badges */
+.type-badge{font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;flex-shrink:0;line-height:1.5}
+.type-milestone{background:rgba(168,85,247,.15);color:#a855f7}
+.type-feature{background:rgba(59,130,246,.15);color:#3b82f6}
+.type-bugfix{background:rgba(239,68,68,.15);color:#ef4444}
+.type-chore{background:rgba(107,114,128,.15);color:#9ca3af}
+.type-task{background:rgba(34,197,94,.15);color:#22c55e}
+.type-refactor{background:rgba(99,102,241,.15);color:#6366f1}
+.type-design{background:rgba(236,72,153,.15);color:#ec4899}
+.type-content{background:rgba(14,165,233,.15);color:#0ea5e9}
+.type-copywriting{background:rgba(6,182,212,.15);color:#06b6d4}
+.type-review{background:rgba(245,158,11,.15);color:#f59e0b}
+.type-campaign{background:rgba(168,85,247,.15);color:#a855f7}
+.type-outreach{background:rgba(249,115,22,.15);color:#f97316}
+.type-analytics{background:rgba(34,197,94,.15);color:#22c55e}
+.type-planning{background:rgba(99,102,241,.15);color:#6366f1}
+.type-operations{background:rgba(107,114,128,.15);color:#9ca3af}
+.type-research{background:rgba(14,165,233,.15);color:#0ea5e9}
+.type-meeting{background:rgba(245,158,11,.15);color:#f59e0b}
+.type-custom{background:rgba(107,114,128,.1);color:#9ca3af}
+.kb-card-type{position:absolute;top:8px;right:8px}
+
+/* Message inbox */
+.msg-badge{background:var(--err);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:16px;text-align:center;line-height:1.4}
+.msg-item{padding:10px 16px;border-bottom:1px solid var(--bd);cursor:pointer;transition:background .15s}
+.msg-item:hover{background:var(--bg3)}
+.msg-item.unread{background:rgba(59,130,246,.05)}
+.msg-item.unread .msg-subject{font-weight:600}
+.msg-subject{font-size:13px;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msg-from{font-size:11px;color:var(--t2)}
+.msg-content{font-size:12px;color:var(--t1);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vis-toggle{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);cursor:pointer;transition:border-color .15s;user-select:none}
 .vis-toggle:hover{border-color:var(--bd2)}
 .vis-toggle .vis-sw{width:36px;height:20px;border-radius:10px;background:var(--bg3);position:relative;transition:background .2s;flex-shrink:0}
@@ -409,6 +441,7 @@ select{appearance:auto}
   <div id="sb-add-proj"></div>
   <div class="sb-sec">System</div>
   <a href="#docs">📄 Docs</a>
+  <a href="#inbox" id="sb-inbox-link">💬 Inbox <span id="sb-inbox-badge" class="msg-badge" style="display:none">0</span></a>
   <a href="#discussions">💬 Discussions</a>
   <a href="#activity" id="sb-activity">📋 Activity</a>
   <a href="#settings" id="sb-settings">⚙️ Settings</a>
@@ -536,10 +569,12 @@ function openTaskPanel(task){
   const p=document.getElementById('task-panel');
   const priorities={'critical':'#ef4444','high':'#f97316','medium':'#eab308','low':'#22c55e','none':'#6b7280'};
   const authed=isAuthenticated();
+  const taskTypes={milestone:'🏁',feature:'✨',bugfix:'🐛',chore:'🔧',task:'📋',refactor:'🔧',design:'🎨',content:'✍️',copywriting:'📝',review:'👀',campaign:'📣',outreach:'🤝',analytics:'📊',planning:'📋',operations:'⚙️',research:'🔍',meeting:'🤝'};
   let h=`<div class="panel-hdr"><div id="tp-title-text" style="flex:1;font-weight:600;font-size:15px">${esc(task.title)}</div><button class="btn-icon" onclick="closeTaskPanel()">✕</button></div>`;
   h+=`<div class="panel-body">`;
-  h+=`<div class="panel-sec"><div class="field-row"><div><label>Status</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${task.status.replace('_',' ')}</div></div>`;
-  h+=`<div><label>Priority</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${task.priority||'none'}</div></div></div></div>`;
+  h+=`<div class="panel-sec"><div class="field-row"><div><label>Type</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${taskTypes[task.type]||taskTypes.task} ${esc(task.type||'task')}</div></div>`;
+  h+=`<div><label>Status</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${task.status.replace('_',' ')}</div></div></div></div>`;
+  h+=`<div class="panel-sec"><div class="field-row"><div><label>Priority</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${task.priority||'none'}</div></div>`;
   h+=`<div class="panel-sec"><div class="field-row"><div><label>Assignee</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${esc(task.assignee||'Unassigned')}</div></div>`;
   h+=`<div><label>Due Date</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${task.due_date||'—'}</div></div></div></div>`;
   h+=`<div class="panel-sec"><label>Tags</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${esc((task.tags||[]).join(', ')||'—')}</div></div>`;
@@ -571,9 +606,15 @@ function openTaskPanelEdit(task){
   const p=document.getElementById('task-panel');
   const priorities={'critical':'#ef4444','high':'#f97316','medium':'#eab308','low':'#22c55e','none':'#6b7280'};
   const statuses=['proposed','todo','in_progress','review','done','rejected'];
+  const presetTypes={milestone:'🏁 Milestone',feature:'✨ Feature',task:'📋 Task',bugfix:'🐛 Bugfix',chore:'🔧 Chore',refactor:'🔧 Refactor',design:'🎨 Design',content:'✍️ Content',copywriting:'📝 Copywriting',review:'👀 Review',campaign:'📣 Campaign',outreach:'🤝 Outreach',analytics:'📊 Analytics',planning:'📋 Planning',operations:'⚙️ Operations',research:'🔍 Research',meeting:'🤝 Meeting'};
+  const curType=task.type||'task';
+  const isPreset=curType in presetTypes;
+  let typeOpts=Object.entries(presetTypes).map(([k,v])=>`<option value="${k}" ${curType===k?'selected':''}>${v}</option>`).join('');
+  typeOpts+=`<option value="__custom" ${!isPreset?'selected':''}>✏️ Custom...</option>`;
   let h=`<div class="panel-hdr"><input id="tp-title" value="${esc(task.title)}"><button class="btn-icon" onclick="closeTaskPanel()">✕</button></div>`;
   h+=`<div class="panel-body">`;
-  h+=`<div class="panel-sec"><div class="field-row"><div><label>Status</label><select id="tp-status">${statuses.map(s=>`<option value="${s}" ${task.status===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}</select></div>`;
+  h+=`<div class="panel-sec"><div class="field-row"><div><label>Type</label><select id="tp-type" onchange="document.getElementById('tp-custom-type').style.display=this.value==='__custom'?'block':'none'">${typeOpts}</select><input id="tp-custom-type" placeholder="custom-type" value="${isPreset?'':esc(curType)}" style="display:${!isPreset?'block':'none'};margin-top:4px;width:100%;font-size:12px;padding:4px 6px;border:1px solid var(--b1);border-radius:4px;background:var(--bg1);color:var(--t1)"></div>`;
+  h+=`<div><label>Status</label><select id="tp-status">${statuses.map(s=>`<option value="${s}" ${task.status===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}</select></div></div></div>`;
   h+=`<div><label>Priority</label><select id="tp-priority">${Object.entries(priorities).map(([k,v])=>`<option value="${k}" ${task.priority===k?'selected':''}>${k}</option>`).join('')}</select></div></div></div>`;
   h+=`<div class="panel-sec"><div class="field-row"><div><label>Assignee</label><input id="tp-assignee" value="${esc(task.assignee||'')}"></div>`;
   h+=`<div><label>Due Date</label><input id="tp-due" type="date" value="${task.due_date||''}"></div></div></div>`;
@@ -585,7 +626,7 @@ function openTaskPanelEdit(task){
   document.getElementById('panel-bg').classList.add('open');
   p.classList.add('open');
   loadComments(task.id);
-  p.querySelectorAll('#tp-title,#tp-status,#tp-priority,#tp-assignee,#tp-due,#tp-tags').forEach(el=>{
+  p.querySelectorAll('#tp-title,#tp-status,#tp-type,#tp-priority,#tp-assignee,#tp-due,#tp-tags').forEach(el=>{
     el.addEventListener('change',()=>saveTask(task.id));
   });
   document.getElementById('tp-desc').addEventListener('blur',()=>saveTask(task.id));
@@ -599,6 +640,7 @@ async function saveTask(id){
   const body={
     title:document.getElementById('tp-title').value,
     status:document.getElementById('tp-status').value,
+    type:document.getElementById('tp-type').value==='__custom'?document.getElementById('tp-custom-type').value.trim():document.getElementById('tp-type').value,
     priority:document.getElementById('tp-priority').value,
     assignee:document.getElementById('tp-assignee').value,
     due_date:document.getElementById('tp-due').value||null,
@@ -813,6 +855,7 @@ function getRoute(){
   if(h==='#discussions')return{view:'discussions'};
   if(h==='#activity')return{view:'activity'};
   if(h==='#agents')return{view:'agents'};
+  if(h==='#inbox')return{view:'inbox'};
   const m=h.match(/^#project\/([^/]+)\/(.+)$/);
   if(m)return{view:m[2],slug:m[1]};
   return{view:'overview'};
@@ -835,6 +878,7 @@ async function render(){
     case'analytics':await renderAnalytics(app);break;
     case'discussions':await renderDiscussions(app);break;
     case'activity':await renderActivity(app);break;
+    case'inbox':await renderInbox(app);break;
     default:app.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div><h3>Not found</h3><p>This view doesn't exist</p></div>`;
   }
 }
@@ -908,11 +952,76 @@ async function quickHitl(id,status){
   setTimeout(()=>render(),300);
 }
 
+// ── Inbox ──
+async function renderInbox(app){
+  const data=await api('GET','/api/messages?agent='+(S.agentName||''));
+  if(!data){app.innerHTML='<div class="empty"><h3>Could not load messages</h3></div>';return}
+  const msgs=data.messages||[];
+  const unread=data.unread_count||0;
+  let h=`<div class="kb-header"><h2>💬 Inbox</h2>
+    <div class="kb-filters">
+      <select id="inbox-filter" onchange="renderInbox(document.getElementById('app'))">
+        <option value="unread"${unread>0?' selected':''}>Unread (${unread})</option>
+        <option value="all">All messages</option>
+      </select>
+      ${isAuthenticated()?`<button class="btn btn-s btn-sm" onclick="markAllRead()">✓ Mark all read</button>`:''}
+    </div></div>`;
+  if(msgs.length===0){
+    h+=`<div class="empty"><div class="empty-icon">📭</div><h3>No messages</h3><p>Your inbox is empty</p></div>`;
+  } else {
+    msgs.forEach(m=>{
+      const unreadCls=m.is_read?'':' unread';
+      const timeAgo=new Date(m.created_at).toLocaleString();
+      h+=`<div class="msg-item${unreadCls}" onclick="openMessage('${m.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="msg-subject">${esc(m.subject||'No subject')}</span>
+          <span style="font-size:11px;color:var(--t2)">${timeAgo}</span>
+        </div>
+        <div class="msg-from">From: ${esc(m.from_agent)}${m.to_agent?' → '+esc(m.to_agent):' (broadcast)'}</div>
+        <div class="msg-content">${esc(m.content)}</div>
+      </div>`;
+    });
+  }
+  app.innerHTML=h;
+}
+async function markAllRead(){
+  await api('PATCH','/api/messages/read-all');
+  toast('All marked as read','ok');
+  setTimeout(()=>renderInbox(document.getElementById('app')),200);
+  updateInboxBadge(0);
+}
+async function openMessage(id){
+  await api('PATCH','/api/messages/'+id+'/read');
+  const data=await api('GET','/api/messages?agent='+(S.agentName||''));
+  if(data)updateInboxBadge(data.unread_count||0);
+  renderInbox(document.getElementById('app'));
+}
+function updateInboxBadge(count){
+  const b=document.getElementById('sb-inbox-badge');
+  if(!b)return;
+  if(count>0){b.style.display='inline';b.textContent=count>99?'99+':count}
+  else{b.style.display='none'}
+}
+async function pollInboxBadge(){
+  if(!isAuthenticated())return;
+  const data=await api('GET','/api/messages?agent='+(S.agentName||''));
+  if(data)updateInboxBadge(data.unread_count||0);
+}
+
 // ── Kanban Board ──
 async function renderBoard(app,slug){
+  const typeFilter=document.getElementById('kb-filter-type')?.value||'';
+  const priFilter=document.getElementById('kb-filter-priority')?.value||'';
+  const assignFilter=document.getElementById('kb-filter-assignee')?.value||'';
+  let taskUrl='/api/projects/'+slug+'/tasks';
+  const qp=[];
+  if(typeFilter)qp.push('type='+typeFilter);
+  if(priFilter)qp.push('priority='+priFilter);
+  if(assignFilter)qp.push('assignee='+assignFilter);
+  if(qp.length)taskUrl+='?'+qp.join('&');
   const[proj,tasksData]=await Promise.all([
     api('GET','/api/projects/'+slug),
-    api('GET','/api/projects/'+slug+'/tasks')
+    api('GET',taskUrl)
   ]);
   if(!proj){app.innerHTML='<div class="empty"><h3>Project not found</h3></div>';return}
   const project=proj.project||proj;
@@ -925,11 +1034,16 @@ async function renderBoard(app,slug){
     {key:'done',label:'Done',color:'#22c55e'}
   ];
   const priorities={'critical':'#ef4444','high':'#f97316','medium':'#eab308','low':'#22c55e','none':'#6b7280'};
+  const taskTypes={milestone:'🏁',feature:'✨',bugfix:'🐛',chore:'🔧',task:'📋',refactor:'🔧',design:'🎨',content:'✍️',copywriting:'📝',review:'👀',campaign:'📣',outreach:'🤝',analytics:'📊',planning:'📋',operations:'⚙️',research:'🔍',meeting:'🤝'};
+  // Dynamic type filter: presets + any custom types from existing tasks
+  const usedTypes=new Set(tasks.map(t=>t.type||'task'));
+  const allFilterTypes=[...new Set([...Object.keys(taskTypes),...usedTypes])].sort();
   let h=`<div class="kb-header">
     <h2>${project.icon||'📋'} ${esc(project.name)}</h2>
     <div class="kb-filters">
       <select id="kb-filter-assignee" onchange="render()"><option value="">All assignees</option></select>
-      <select id="kb-filter-priority" onchange="render()"><option value="">All priorities</option>${Object.keys(priorities).map(k=>`<option value="${k}">${k}</option>`).join('')}</select>
+      <select id="kb-filter-priority" onchange="render()"><option value="">All priorities</option>${Object.keys(priorities).map(k=>`<option value="${k}" ${priFilter===k?'selected':''}>${k}</option>`).join('')}</select>
+      <select id="kb-filter-type" onchange="render()"><option value="" ${typeFilter===''?'selected':''}>All types</option>${allFilterTypes.map(k=>`<option value="${k}" ${typeFilter===k?'selected':''}>${taskTypes[k]||'🏷️'} ${k}</option>`).join('')}</select>
       ${isAuthenticated()?`<button class="btn btn-p btn-sm" onclick="showNewTask('${slug}')">+ New Task</button>`:''}
     </div>
     <a href="#project/${slug}/docs" class="btn btn-s btn-sm">📄 Docs</a>
@@ -943,10 +1057,12 @@ async function renderBoard(app,slug){
       <div class="kb-col-body" data-status="${s.key}" ondragover="onDragOver(event)" ondrop="onDrop(event,'${s.key}','${slug}')" ondragleave="onDragLeave(event)">`;
     colTasks.forEach(t=>{
       const cardClass=t.status==='proposed'?'kb-card-proposed':t.status==='review'?'kb-card-review':'';
+      const tt=t.type||'task';
       h+=`<div class="kb-card ${cardClass}" draggable="true" data-id="${t.id}" ondragstart="onDragStart(event)" onclick="loadAndOpenTask('${t.id}')">
         <div class="kb-card-title">${esc(t.title)}</div>
         <div class="kb-card-meta">
           <div class="kb-card-priority" style="background:${priorities[t.priority]||priorities.none}"></div>
+          <span class="type-badge type-${tt}">${taskTypes[tt]||'📋'}</span>
           ${t.assignee?`<span class="kb-card-assignee">${esc(t.assignee)}</span>`:''}
           ${t.due_date?`<span class="kb-card-due">📅 ${t.due_date.slice(5)}</span>`:''}
         </div>
@@ -956,6 +1072,9 @@ async function renderBoard(app,slug){
   });
   h+=`</div>`;
   app.innerHTML=h;
+  // Restore filter selections after DOM re-render
+  const af=document.getElementById('kb-filter-assignee');
+  if(af)af.value=assignFilter;
 }
 
 // Drag and drop
@@ -976,7 +1095,7 @@ function showNewTask(slug){
   openModal(`<h3>New Task</h3>
     <div class="form-group"><label>Title</label><input id="nt-title" placeholder="Task title"></div>
     <div class="form-group"><label>Description</label><textarea id="nt-desc" rows="3"></textarea></div>
-    <div class="form-group"><div class="field-row"><div><label>Priority</label><select id="nt-pri"><option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></div><div><label>Status</label><select id="nt-status"><option value="proposed">Proposed</option><option value="todo">To Do</option></select></div></div></div>
+    <div class="form-group"><div class="field-row"><div><label>Type</label><select id="nt-type" onchange="document.getElementById('nt-custom-type').style.display=this.value==='__custom'?'block':'none'"><option value="task">📋 Task</option><option value="feature">✨ Feature</option><option value="bugfix">🐛 Bugfix</option><option value="chore">🔧 Chore</option><option value="milestone">🏁 Milestone</option><option value="design">🎨 Design</option><option value="content">✍️ Content</option><option value="research">🔍 Research</option><option value="campaign">📣 Campaign</option><option value="analytics">📊 Analytics</option><option value="meeting">🤝 Meeting</option><option value="__custom">✏️ Custom…</option></select><input id="nt-custom-type" placeholder="custom-type" style="display:none;margin-top:4px;width:100%;font-size:12px;padding:4px 6px;border:1px solid var(--b1);border-radius:4px;background:var(--bg1);color:var(--t1)"></div><div><label>Priority</label><select id="nt-pri"><option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></div><div><label>Status</label><select id="nt-status"><option value="proposed">Proposed</option><option value="todo">To Do</option></select></div></div></div>
     <div class="form-group"><label>Assignee</label><input id="nt-assignee" placeholder="Agent name"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="createTask('${slug}')">Create</button></div>`);
 }
@@ -986,6 +1105,7 @@ async function createTask(slug){
   const body={
     title,
     description:document.getElementById('nt-desc').value,
+    type:document.getElementById('nt-type').value==='__custom'?document.getElementById('nt-custom-type').value.trim():document.getElementById('nt-type').value,
     priority:document.getElementById('nt-pri').value,
     status:document.getElementById('nt-status').value,
     assignee:document.getElementById('nt-assignee').value.trim()
@@ -2031,6 +2151,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 checkHealth();
 render();
 setInterval(checkHealth,30000);
+setInterval(pollInboxBadge,15000);
 </script>
 </body>
 </html>

@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 11
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -56,9 +56,11 @@ CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES tasks(id),
     title TEXT NOT NULL,
     description TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'todo',
+    type TEXT DEFAULT 'task',
     priority TEXT DEFAULT 'none',
     assignee TEXT DEFAULT '',
     tags TEXT DEFAULT '[]',
@@ -74,6 +76,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
 
 -- Pages (Outline-style documents, recursive CTE-compatible with parent_id self-reference)
 -- project_id nullable for standalone pages (no project required)
@@ -174,6 +177,22 @@ CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages BEGIN
     INSERT INTO pages_fts(pages_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
     INSERT INTO pages_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
 END;
+
+-- Messages: lightweight inter-agent handoff notifications
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL DEFAULT '',
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    subject TEXT DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_to_agent ON messages(to_agent, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_from_agent ON messages(from_agent, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_task ON messages(task_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
 """
 
 # Schema v5 tables — also available as standalone SQL for tests
@@ -469,6 +488,51 @@ CREATE INDEX IF NOT EXISTS idx_activity_project_created ON activity(project_id, 
 CREATE INDEX IF NOT EXISTS idx_activity_target_type ON activity(target_type);
 -- Composite: tasks by assignee+created_at (KPI engine tasks_created by date)
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee_created ON tasks(assignee, created_at);""",
+        10: """-- Schema v10: task types + messages table for agent handoffs
+
+-- Add type column to existing tasks table
+ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'task';
+CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);
+
+-- Messages: lightweight inter-agent handoff (not structured discussions)
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL DEFAULT '',
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    subject TEXT DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_to_agent ON messages(to_agent, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_from_agent ON messages(from_agent, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_task ON messages(task_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);""",
+        11: """-- Schema v11: ensure tasks.type column exists (no CHECK), create messages table
+
+-- Step 1: Add type column if missing (handles DBs where v10 was skipped)
+ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'task';
+
+-- Step 2: Create messages table if missing (v10 may have been entirely skipped)
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL DEFAULT '',
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    subject TEXT DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_to_agent ON messages(to_agent, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_from_agent ON messages(from_agent, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_task ON messages(task_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
+
+-- Step 3: Create type index if missing
+CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);""",
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)

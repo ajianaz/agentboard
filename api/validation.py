@@ -19,6 +19,19 @@ VALID_PRIORITIES = frozenset({
     "none", "low", "medium", "high", "critical",
 })
 
+VALID_TASK_TYPES = frozenset({
+    # Engineering
+    "milestone", "feature", "task", "bugfix", "chore", "refactor",
+    # Design & Content
+    "design", "content", "copywriting", "review",
+    # Marketing & Sales
+    "campaign", "outreach", "analytics",
+    # Operations & Planning
+    "planning", "operations", "research", "meeting",
+})
+
+MAX_TYPE_LENGTH = 30
+
 VALID_VISIBILITIES = frozenset({"public", "hidden"})
 
 VALID_DISCUSSION_STATUSES = frozenset({"open", "closed", "consensus"})
@@ -91,6 +104,39 @@ def validate_title(value: Any, max_len: int = MAX_TITLE_LENGTH, field_name: str 
     if len(title) > max_len:
         return None, f"{field_name} exceeds maximum length of {max_len} characters (got {len(title)})"
     return title, None
+
+
+def validate_task_type(value: Any, default: str = "task") -> tuple[str, str | None]:
+    """Validate task type: accepts any preset type OR a well-formatted custom type.
+
+    Preset types (VALID_TASK_TYPES) are the curated list. Custom types are
+    accepted if they match: lowercase alphanumeric, hyphens, underscores,
+    max MAX_TYPE_LENGTH chars, starts with a letter.
+
+    Returns (validated_type, error_message).
+    On success error_message is None.
+    """
+    import re
+
+    if not value or not isinstance(value, str):
+        return default, None
+
+    stripped = value.strip().lower()
+    if not stripped:
+        return default, None
+
+    if len(stripped) > MAX_TYPE_LENGTH:
+        return default, f"Task type exceeds max {MAX_TYPE_LENGTH} chars (got {len(stripped)})"
+
+    # Preset types pass immediately
+    if stripped in VALID_TASK_TYPES:
+        return stripped, None
+
+    # Custom types: must match [a-z][a-z0-9_-]*
+    if re.match(r'^[a-z][a-z0-9_-]*$', stripped):
+        return stripped, None
+
+    return default, f"Invalid type '{value}': use preset types or custom (lowercase a-z, 0-9, hyphens, underscores)"
 
 
 def validate_text(value: Any, max_len: int = MAX_DESCRIPTION_LENGTH, field_name: str = "description") -> str:

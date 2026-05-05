@@ -13,8 +13,9 @@ import json
 from db import get_db, gen_id
 from api import router
 from api.validation import (
-    validate_enum, validate_title, validate_text,
-    VALID_STATUSES, VALID_PRIORITIES, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH,
+    validate_enum, validate_title, validate_text, validate_task_type,
+    VALID_STATUSES, VALID_PRIORITIES,
+    MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH,
 )
 from webhook import on_task_created, on_task_assigned, on_task_status_changed, on_task_comment
 
@@ -156,6 +157,12 @@ def list_project_tasks(params, query, body, headers):
         conditions.append("t.tags LIKE ?")
         sql_params.append(f'%"{tag_filter}"%')
 
+    # Filter by type
+    type_filter = _get_first(query.get("type"))
+    if type_filter:
+        conditions.append("t.type = ?")
+        sql_params.append(type_filter)
+
     where_clause = " AND ".join(conditions)
 
     rows = conn.execute(
@@ -207,6 +214,11 @@ def create_task(params, query, body, headers):
     if priority is None and data.get("priority"):
         raise ValueError(f"Invalid priority: {data['priority']}")
     priority = priority or "none"
+    task_type, type_err = validate_task_type(data.get("type"))
+    if type_err:
+        conn.close()
+        return 400, {"error": type_err, "code": "VALIDATION_ERROR"}
+    task_type = task_type or "task"
     assignee = validate_text(data.get("assignee"), 200, "assignee")
     tags = data.get("tags") or []
     due_date = validate_text(data.get("due_date"), 20, "due_date") or None
@@ -241,12 +253,12 @@ def create_task(params, query, body, headers):
     # to prevent race conditions with concurrent task creation
     conn.execute(
         """INSERT INTO tasks
-           (id, project_id, parent_id, title, description, status, priority, assignee,
+           (id, project_id, parent_id, title, description, status, type, priority, assignee,
             tags, position, due_date, started_at, completed_at, metadata, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
                    (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ? AND status = ?),
                    ?, ?, ?, ?, ?)""",
-        (task_id, project_id, parent_id, title, description, status, priority, assignee,
+        (task_id, project_id, parent_id, title, description, status, task_type, priority, assignee,
          json.dumps(tags), project_id, status, due_date, started_at, completed_at,
          json.dumps({}), created_by),
     )
@@ -334,6 +346,14 @@ def update_task(params, query, body, headers):
             conn.close()
             return 400, {"error": f"Invalid priority. Must be one of: {', '.join(sorted(VALID_PRIORITIES))}", "code": "VALIDATION_ERROR"}
         updates["priority"] = new_priority
+
+    # Type
+    if "type" in data and data["type"] is not None:
+        new_type, type_err = validate_task_type(data["type"])
+        if type_err:
+            conn.close()
+            return 400, {"error": type_err, "code": "VALIDATION_ERROR"}
+        updates["type"] = new_type
 
     # Assignee
     if "assignee" in data and data["assignee"] is not None:
@@ -516,6 +536,12 @@ def list_cross_project_tasks(params, query, body, headers):
     if priority_filter:
         conditions.append("t.priority = ?")
         sql_params.append(priority_filter)
+
+    # Type filter
+    type_filter = _get_first(query.get("type"))
+    if type_filter:
+        conditions.append("t.type = ?")
+        sql_params.append(type_filter)
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
