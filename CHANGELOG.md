@@ -3,7 +3,7 @@
 All notable changes to AgentBoard are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
-## [1.6.0] - 2026-05-05
+## [0.6.0] - 2026-05-05
 
 ### Added
 - **Feedback File Watcher** — Auto-ingest `.md` files to database on change
@@ -22,30 +22,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Docs layout responsive — stack vertically on mobile
 - Router error logging + CLI env var fallback
 
-## [1.5.4] - 2026-04-28
+## [0.5.4] - 2026-04-28
 
 ### Fixed
 - Security hardening, data integrity, and input validation
 
 
-## [1.5.3] - 2026-04-28
+## [0.5.3] - 2026-04-28
 
 ### Fixed
 - Validate API key against server before saving — prevents stale/invalid keys
 - Reorder public dashboard cards — Total, Done, Review, In Progress, To Do, Proposed
 
-## [1.5.2] - 2026-04-28
+## [0.5.2] - 2026-04-28
 
 ### Added
 - **Review & To Do cards** on public dashboard — split overview into actionable views
 
-## [1.5.1] - 2026-04-27
+## [0.5.1] - 2026-04-27
 
 ### Fixed
 - Docs: fix stale refs — schema v7, 54 endpoints, complete api_reference
 - CodeRabbit PR #105 — stale projSlug ref, hidden projects leak in public stats
 
-## [1.5.0] - 2026-04-27
+## [0.5.0] - 2026-04-27
 
 ### Added
 - **Visibility Model v2** — Per-page visibility control (public/private) in docs hub
@@ -67,7 +67,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Migration v7 — drops FTS before pages rebuild, adds error logging
 - Stats totals inconsistent — filter non-archived, add todo_tasks count
 
-## [1.4.0] - 2026-04-26
+## [0.4.0] - 2026-04-26
 
 ### Added
 - **Standalone Tools** — `tools/client.py` for HTTP API client and `tools/discussion.py` for discussion management
@@ -78,7 +78,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Documentation** — Made repo generic (removed Hermes-specific references from public docs)
 - **Gitignore** — Added *.db, *.db-shm, *.db-wal, .api_key, .env to prevent secret leaks
 
-## [1.3.0] - 2026-04-25
+## [0.3.0] - 2026-04-25
 
 ### Added
 - **Analytics Engine** — KPI computation with configurable intervals (5min default), auto-cleanup of stale data
@@ -102,7 +102,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Path traversal protected via `resolve().relative_to()` in static file handler
 - Auth keys stored as SHA-256 hashes — no plaintext
 
-## [1.2.0] - 2025-04-24
+## [0.2.0] - 2025-04-24
 
 ### Added
 - Multi-project kanban board
@@ -114,14 +114,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - API key authentication (POST/PATCH/DELETE)
 - `AGENTS.md` for agent onboarding
 
-## [1.1.0] - 2025-04-15
+## [0.1.0] - 2025-04-15
 
 ### Added
 - Basic task CRUD
 - Project management
 - Static file serving
 
-## [1.0.0] - 2025-04-01
+## [0.0.1] - 2025-04-01
 
 ### Added
 - Initial release
