@@ -3,6 +3,30 @@
 All notable changes to AgentBoard are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+## [1.6.0] - 2026-05-05
+
+### Added
+- **Feedback File Watcher** — Auto-ingest `.md` files to database on change
+- **Agent Auto-Tracking Webhook** — `/api/webhook/track` endpoint for agent activity logging
+- **CLI Tool** — Standalone CLI for task management and integration with GitHub Actions
+- **Custom Task Types** — Schema v11: no CHECK constraint, configurable task categories
+- **Messages Inbox** — New `/api/messages` endpoints for inter-agent messaging
+- **Task Metadata Convention** — Standardized metadata: plan, session, cron, result, external
+
+### Changed
+- **Config** — `agentboard.toml` now user-specific with template (`.toml.example`)
+- **CI** — Docker standalone-ready, all tests green across Python 3.11–3.13
+
+### Fixed
+- Security hardening, data integrity, and input validation (v1.5.4)
+- Docs layout responsive — stack vertically on mobile
+- Router error logging + CLI env var fallback
+
+## [1.5.4] - 2026-04-28
+
+### Fixed
+- Security hardening, data integrity, and input validation
+
 
 ## [1.5.3] - 2026-04-28
 
