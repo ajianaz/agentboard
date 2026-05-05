@@ -1,4 +1,4 @@
-"""AgentBoard — Task CRUD, HITL transitions, and cross-project queries.
+"""AgentBoard — Task CRUD, HITL transitions, cross-project queries, and hierarchy.
 
 Endpoints:
     GET    /api/projects/{slug}/tasks           — list tasks in project
@@ -7,6 +7,8 @@ Endpoints:
     DELETE /api/tasks/{id}                      — delete task
     GET    /api/tasks?project=all               — cross-project tasks
     GET    /api/tasks/{id}                      — single task with comments
+    GET    /api/tasks/{id}/children             — subtasks of a parent task
+    GET    /api/projects/{slug}/tasks/tree      — hierarchical tree view
 """
 
 import json
@@ -64,6 +66,41 @@ def _get_first(query_list, default=""):
     if query_list and len(query_list) > 0:
         return query_list[0]
     return default
+
+
+def _compute_depth(conn, parent_id: str | None) -> int:
+    """Compute depth for a task based on its parent's depth.
+
+    Root tasks (no parent) get depth=0.
+    Children get parent.depth + 1.
+    """
+    if not parent_id:
+        return 0
+    parent = conn.execute("SELECT depth FROM tasks WHERE id = ?", (parent_id,)).fetchone()
+    if not parent:
+        return 0
+    return (parent["depth"] or 0) + 1
+
+
+def _cascade_depth(conn, task_id: str, new_depth: int):
+    """Recursively update depth for all descendants of a task.
+
+    Called when a task's parent_id changes or a task is created with a parent.
+    Uses iterative approach to avoid deep recursion.
+    """
+    # BFS: process children at each level
+    queue = [(task_id, new_depth)]
+    while queue:
+        current_id, current_depth = queue.pop(0)
+        children = conn.execute(
+            "SELECT id FROM tasks WHERE parent_id = ?", (current_id,)
+        ).fetchall()
+        for child in children:
+            child_depth = current_depth + 1
+            conn.execute(
+                "UPDATE tasks SET depth = ? WHERE id = ?", (child_depth, child["id"])
+            )
+            queue.append((child["id"], child_depth))
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +273,9 @@ def create_task(params, query, body, headers):
             conn.close()
             return 400, {"error": "Parent task must belong to the same project", "code": "VALIDATION_ERROR"}
 
+    # Compute depth based on parent
+    depth = _compute_depth(conn, parent_id)
+
     task_id = gen_id()
     created_by = (data.get("created_by") or actor).strip()
 
@@ -254,13 +294,13 @@ def create_task(params, query, body, headers):
     conn.execute(
         """INSERT INTO tasks
            (id, project_id, parent_id, title, description, status, type, priority, assignee,
-            tags, position, due_date, started_at, completed_at, metadata, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+            tags, position, due_date, started_at, completed_at, metadata, created_by, depth)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                    (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ? AND status = ?),
-                   ?, ?, ?, ?, ?)""",
+                   ?, ?, ?, ?, ?, ?)""",
         (task_id, project_id, parent_id, title, description, status, task_type, priority, assignee,
          json.dumps(tags), project_id, status, due_date, started_at, completed_at,
-         json.dumps({}), created_by),
+         json.dumps({}), created_by, depth),
     )
 
     # Log HITL activity for creation
@@ -362,6 +402,40 @@ def update_task(params, query, body, headers):
         if new_assignee != row["assignee"]:
             detail_changes["assignee"] = new_assignee
 
+    # Parent ID — with cascade depth update
+    if "parent_id" in data:
+        new_parent = validate_text(data["parent_id"], 20, "parent_id") or None
+        old_parent = row["parent_id"]
+        if new_parent != old_parent:
+            # Validate new parent exists and belongs to same project
+            if new_parent:
+                parent = conn.execute(
+                    "SELECT id, project_id FROM tasks WHERE id = ? AND id != ?",
+                    (new_parent, task_id),
+                ).fetchone()
+                if not parent:
+                    conn.close()
+                    return 400, {"error": f"Parent task '{new_parent}' not found", "code": "VALIDATION_ERROR"}
+                if parent["project_id"] != project_id:
+                    conn.close()
+                    return 400, {"error": "Parent task must belong to the same project", "code": "VALIDATION_ERROR"}
+                # Prevent circular reference: walk UP ancestors from new_parent
+                # to check if task_id appears (meaning new_parent is a descendant)
+                ancestor_id = new_parent
+                visited = set()
+                while ancestor_id:
+                    if ancestor_id == task_id:
+                        conn.close()
+                        return 400, {"error": "Circular reference: cannot set a descendant as parent", "code": "VALIDATION_ERROR"}
+                    if ancestor_id in visited:
+                        break  # safety: existing circular data in DB
+                    visited.add(ancestor_id)
+                    ancestor_row = conn.execute("SELECT parent_id FROM tasks WHERE id = ?", (ancestor_id,)).fetchone()
+                    ancestor_id = ancestor_row["parent_id"] if ancestor_row else None
+
+            updates["parent_id"] = new_parent
+            updates["depth"] = _compute_depth(conn, new_parent)
+
     # Tags
     if "tags" in data and data["tags"] is not None:
         updates["tags"] = json.dumps(data["tags"])
@@ -406,6 +480,11 @@ def update_task(params, query, body, headers):
         f"UPDATE tasks SET {', '.join(set_parts)}, updated_at = datetime('now') WHERE id = ?",
         set_values,
     )
+
+    # Cascade depth update to all children when parent changed
+    if "parent_id" in updates:
+        new_depth = updates.get("depth", 0)
+        _cascade_depth(conn, task_id, new_depth)
 
     # Log HITL status transition activity
     new_status = updates.get("status")
@@ -629,3 +708,77 @@ def list_subtasks(params, query, body, headers):
     children = [_task_row_to_dict(r) for r in rows]
     conn.close()
     return 200, {"tasks": children}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/projects/{slug}/tasks/tree — hierarchical tree view
+# ---------------------------------------------------------------------------
+
+@router.get("/api/projects/{slug}/tasks/tree")
+def list_project_tasks_tree(params, query, body, headers):
+    """Return all tasks in a project as a nested tree structure.
+
+    Query params:
+        type — filter by task type (e.g. type=mission to show only missions)
+        status — filter by status
+        depth_max — max depth to include (default: no limit)
+    """
+    slug = params["slug"]
+    conn = get_db()
+
+    project = conn.execute("SELECT id FROM projects WHERE slug = ?", (slug,)).fetchone()
+    if not project:
+        conn.close()
+        return 404, {"error": f"Project '{slug}' not found", "code": "NOT_FOUND"}
+
+    project_id = project["id"]
+
+    # Build conditions
+    conditions = ["t.project_id = ?"]
+    sql_params: list = [project_id]
+
+    type_filter = _get_first(query.get("type"))
+    if type_filter:
+        conditions.append("t.type = ?")
+        sql_params.append(type_filter)
+
+    status_filter = _get_first(query.get("status"))
+    if status_filter:
+        conditions.append("t.status = ?")
+        sql_params.append(status_filter)
+
+    depth_max = _get_first(query.get("depth_max"))
+    if depth_max:
+        try:
+            conditions.append("t.depth <= ?")
+            sql_params.append(int(depth_max))
+        except ValueError:
+            pass
+
+    where_clause = " AND ".join(conditions)
+
+    # Fetch all matching tasks ordered by depth, then position
+    rows = conn.execute(
+        f"""SELECT t.* FROM tasks t
+            WHERE {where_clause}
+            ORDER BY t.depth ASC, t.position ASC, t.created_at ASC""",
+        sql_params,
+    ).fetchall()
+
+    # Build tree structure
+    all_tasks = {}
+    for r in rows:
+        task = _task_row_to_dict(r)
+        task["children"] = []
+        all_tasks[task["id"]] = task
+
+    roots = []
+    for task in all_tasks.values():
+        parent_id = task.get("parent_id")
+        if parent_id and parent_id in all_tasks:
+            all_tasks[parent_id]["children"].append(task)
+        else:
+            roots.append(task)
+
+    conn.close()
+    return 200, {"tree": roots, "total": len(all_tasks)}
