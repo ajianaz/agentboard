@@ -88,6 +88,54 @@ def _resolve_project_slug(conn, project_id: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/plans (global — cross-project)
+# ---------------------------------------------------------------------------
+
+@router.get("/api/plans")
+def list_all_plans(params, query, body, headers):
+    """List all plans across all projects, with optional filters."""
+    conn = get_db()
+
+    conditions = ["1=1"]
+    sql_params = []
+
+    # Filter by project slug
+    project_filter = query.get("project", [None])[0] if query.get("project") else None
+    if project_filter:
+        conditions.append("p.project_id = (SELECT id FROM projects WHERE slug = ?)")
+        sql_params.append(project_filter.strip())
+
+    # Filter by status
+    status_filter = query.get("status", [None])[0] if query.get("status") else None
+    if status_filter:
+        validated = validate_enum(status_filter, VALID_PLAN_STATUSES)
+        if not validated:
+            conn.close()
+            return 400, {"error": f"Invalid status filter: '{status_filter}'", "code": "VALIDATION_ERROR"}
+        conditions.append("p.status = ?")
+        sql_params.append(validated)
+
+    # Filter by assignee
+    assignee_filter = query.get("assignee", [None])[0] if query.get("assignee") else None
+    if assignee_filter:
+        conditions.append("p.assignee = ?")
+        sql_params.append(assignee_filter.strip()[:200])
+
+    where_clause = " AND ".join(conditions)
+
+    rows = conn.execute(
+        f"""SELECT p.* FROM plans p
+            WHERE {where_clause}
+            ORDER BY p.created_at DESC""",
+        sql_params,
+    ).fetchall()
+
+    plans = [_plan_row_to_dict(r) for r in rows]
+    conn.close()
+    return 200, {"plans": plans, "total": len(plans)}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/projects/{slug}/plans
 # ---------------------------------------------------------------------------
 

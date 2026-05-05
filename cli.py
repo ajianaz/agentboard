@@ -61,6 +61,22 @@ def _api(path: str) -> dict:
         raise SystemExit(f"{RED}Timeout{RST} — server at {BOARD_URL} did not respond")
 
 
+def _api_post(path: str, data: dict | None = None) -> dict:
+    """POST/PATCH request to AgentBoard API. Returns parsed JSON or raises."""
+    url = f"{BOARD_URL}{path}"
+    headers = {"Content-Type": "application/json"}
+    if BOARD_KEY:
+        headers["Authorization"] = f"Bearer {BOARD_KEY}"
+    payload = json.dumps(data).encode() if data else b""
+    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:300]
+        raise SystemExit(f"{RED}HTTP {e.code}{RST} {body}")
+
+
 # ── Formatters ───────────────────────────────────────────────────────────────
 
 def _ago(iso: str) -> str:
@@ -83,8 +99,11 @@ def _ago(iso: str) -> str:
 def _status_color(status: str) -> str:
     m = {
         "done": GRN, "completed": GRN,
-        "in_progress": YLW, "review": MAG,
+        "in_progress": YLW, "executing": YLW,
+        "review": MAG,
         "todo": DIM, "backlog": DIM, "proposed": DIM,
+        "approved": CYN,
+        "rejected": RED,
     }
     return m.get(status, WHT)
 
@@ -92,8 +111,11 @@ def _status_color(status: str) -> str:
 def _status_icon(status: str) -> str:
     m = {
         "done": "✓", "completed": "✓",
-        "in_progress": "◎", "review": "◈",
+        "in_progress": "◎", "executing": "▶",
+        "review": "◈",
         "todo": "○", "backlog": "○", "proposed": "◇",
+        "approved": "✦",
+        "rejected": "✗",
     }
     return m.get(status, "?")
 
@@ -236,6 +258,172 @@ def cmd_agents(_args):
     print(f"\n  {DIM}Showing {len(activities)} most recent{RST}\n")
 
 
+# ── Plan Commands ────────────────────────────────────────────────────────────
+
+def cmd_plans(args):
+    """List plans (optionally filtered by project or status)."""
+    params = []
+    if args.project:
+        params.append(f"project={args.project}")
+    if args.status:
+        params.append(f"status={args.status}")
+    qs = f"?{'&'.join(params)}" if params else ""
+    data = _api(f"/api/plans{qs}")
+    plans = data if isinstance(data, list) else data.get("plans", [])
+
+    if not plans:
+        print(f"{DIM}No plans found.{RST}")
+        return
+
+    print(f"\n{CYN}{BOLD}{'ID':>10}  {'STATUS':<12} {'AGENT':<10} {'PROJECT':<20} {'STEPS':>5}  {'CREATED'}{RST}")
+    print(f"{DIM}{'─' * 10}  {'─' * 12} {'─' * 10} {'─' * 20} {'─' * 5}  {'─' * 12}{RST}")
+
+    for p in plans:
+        pid = p.get("id", "?")[:8]
+        status = p.get("status", "proposed")
+        agent = p.get("assignee", p.get("created_by", ""))[:9]
+        project = p.get("project", "")[:18]
+        steps = len(p.get("steps", []))
+        created = p.get("created_at", "")[:10]
+
+        c = _status_color(status)
+        icon = _status_icon(status)
+        slabel = f"{icon} {status}"
+
+        print(f"  {WHT}{pid:>9}  {c}{slabel:<12}{RST} {BLU}{agent:<10}{RST} {project:<20} {steps:>5}  {DIM}{created}{RST}")
+
+    from collections import Counter
+    sc = Counter(p.get("status", "proposed") for p in plans)
+    summary = "  ".join(f"{_status_icon(s)} {_status_color(s)}{v} {s}{RST}" for s, v in sc.most_common())
+    print(f"\n  {summary}  {DIM}({len(plans)} plans){RST}\n")
+
+
+def cmd_plan_show(args):
+    """Show plan details."""
+    data = _api(f"/api/plans/{args.plan_id}")
+    plan = data.get("plan", data)
+
+    pid = plan.get("id", "?")
+    status = plan.get("status", "?")
+    agent = plan.get("assignee", plan.get("created_by", ""))
+    project = plan.get("project", "")
+    desc = plan.get("description", "")
+    ctx = plan.get("context", "")
+    created = plan.get("created_at", "")
+    updated = plan.get("updated_at", "")
+    steps = plan.get("steps", [])
+    mission = plan.get("mission_id", "")
+    meta = plan.get("metadata", {})
+
+    c = _status_color(status)
+    icon = _status_icon(status)
+
+    print(f"\n{CYN}{BOLD}Plan {pid[:8]}{RST}  {c}{icon} {status}{RST}")
+    print(f"{DIM}{'─' * 50}{RST}")
+    print(f"  Agent:   {BLU}{agent}{RST}")
+    print(f"  Project: {project}")
+    if mission:
+        print(f"  Mission: {mission}")
+    print(f"  Created: {created}")
+    if updated and updated != created:
+        print(f"  Updated: {updated}")
+
+    if desc:
+        print(f"\n  {BOLD}Description:{RST}")
+        for line in desc.split("\n"):
+            print(f"    {line}")
+
+    if ctx:
+        print(f"\n  {BOLD}Context:{RST}")
+        for line in ctx.split("\n"):
+            print(f"    {line}")
+
+    if steps:
+        print(f"\n  {BOLD}Steps ({len(steps)}):{RST}")
+        for i, s in enumerate(steps, 1):
+            title = s.get("title", "?")
+            desc_s = s.get("description", "")
+            result = s.get("result", "")
+            st = s.get("status", "")
+            c_s = _status_color(st) if st else DIM
+            icon_s = _status_icon(st) if st else "○"
+            print(f"    {c_s}{icon_s}{RST} {i}. {title}")
+            if desc_s:
+                print(f"       {DIM}{desc_s}{RST}")
+            if result:
+                print(f"       {GRN}→ {result[:60]}{RST}")
+
+    if meta:
+        print(f"\n  {BOLD}Metadata:{RST}")
+        for k, v in meta.items():
+            print(f"    {DIM}{k}: {v}{RST}")
+
+    print()
+
+
+def cmd_plan_create(args):
+    """Create a new plan."""
+    import sys as _sys
+    desc = args.description or input("Description: ").strip()
+    if not desc:
+        raise SystemExit(f"{RED}Description is required.{RST}")
+
+    steps_input = args.steps
+    if steps_input:
+        steps = [{"title": s.strip()} for s in steps_input.split(",") if s.strip()]
+    else:
+        steps = []
+        print("Enter steps (empty line to finish):")
+        while True:
+            try:
+                title = input(f"  Step {len(steps) + 1}: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if not title:
+                break
+            steps.append({"title": title})
+
+    payload = {
+        "agent": args.agent or "",
+        "project_slug": args.project,
+        "description": desc,
+        "steps": steps if steps else [],
+    }
+    if args.context:
+        payload["context"] = args.context
+    if args.mission:
+        payload["mission_id"] = args.mission
+
+    data = _api_post(f"/api/projects/{args.project}/plans", payload)
+    plan = data.get("plan", data)
+    pid = plan.get("id", data.get("plan_id", "?"))
+    status = plan.get("status", data.get("status", "proposed"))
+    print(f"  {GRN}✓{RST} Plan {CYN}{pid[:8]}{RST} created — {_status_color(status)}{_status_icon(status)} {status}{RST}")
+    print(f"  {DIM}Steps: {len(steps)}{RST}\n")
+
+
+def cmd_plan_approve(args):
+    """Approve a proposed plan."""
+    data = _api_post(f"/api/plans/{args.plan_id}/approve")
+    plan = data.get("plan", data)
+    status = plan.get("status", "approved")
+    print(f"  {GRN}✓{RST} Plan {CYN}{args.plan_id[:8]}{RST} — {_status_color(status)}{_status_icon(status)} {status}{RST}\n")
+
+
+def cmd_plan_reject(args):
+    """Reject a proposed plan."""
+    _api_post(f"/api/plans/{args.plan_id}/reject")
+    print(f"  {RED}✗{RST} Plan {CYN}{args.plan_id[:8]}{RST} — {_status_color('rejected')}{_status_icon('rejected')} rejected{RST}\n")
+
+
+def cmd_plan_execute(args):
+    """Execute an approved plan."""
+    data = _api_post(f"/api/plans/{args.plan_id}/execute")
+    plan = data.get("plan", data)
+    status = plan.get("status", "executing")
+    print(f"  {YLW}▶{RST} Plan {CYN}{args.plan_id[:8]}{RST} — {_status_color(status)}{_status_icon(status)} {status}{RST}\n")
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main():
@@ -258,6 +446,32 @@ def main():
 
     sub.add_parser("agents", help="Recent agent activity")
 
+    # ── Plan subcommands ──
+    p_plans = sub.add_parser("plans", help="List plans")
+    p_plans.add_argument("--project", help="Filter by project slug")
+    p_plans.add_argument("--status", help="Filter by status (proposed/approved/executing/done/rejected)")
+
+    p_plan_show = sub.add_parser("plan-show", help="Show plan details")
+    p_plan_show.add_argument("plan_id", help="Plan ID")
+
+    p_plan_create = sub.add_parser("plan-create", help="Create a new plan")
+    p_plan_create.add_argument("project", help="Project slug")
+    p_plan_create.add_argument("--agent", default="", help="Assignee agent name")
+    p_plan_create.add_argument("-d", "--description", default="", help="Plan description")
+    p_plan_create.add_argument("--context", default="", help="Additional context")
+    p_plan_create.add_argument("--steps", default="", help="Comma-separated step titles")
+    p_plan_create.add_argument("--mission", default="", help="Mission ID to link")
+
+    p_plan_approve = sub.add_parser("plan-approve", help="Approve a proposed plan")
+    p_plan_approve.add_argument("plan_id", help="Plan ID")
+
+    p_plan_reject = sub.add_parser("plan-reject", help="Reject a proposed plan")
+    p_plan_reject.add_argument("plan_id", help="Plan ID")
+    p_plan_reject.add_argument("--reason", default="", help="Rejection reason")
+
+    p_plan_execute = sub.add_parser("plan-execute", help="Execute an approved plan")
+    p_plan_execute.add_argument("plan_id", help="Plan ID")
+
     args = parser.parse_args()
 
     # Allow global --url/--key override
@@ -269,6 +483,12 @@ def main():
         "tasks": cmd_tasks,
         "health": cmd_health,
         "agents": cmd_agents,
+        "plans": cmd_plans,
+        "plan-show": cmd_plan_show,
+        "plan-create": cmd_plan_create,
+        "plan-approve": cmd_plan_approve,
+        "plan-reject": cmd_plan_reject,
+        "plan-execute": cmd_plan_execute,
     }
 
     if not args.command:
