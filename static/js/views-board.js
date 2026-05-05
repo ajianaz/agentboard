@@ -40,6 +40,7 @@ async function renderBoard(app,slug){
     <div class="view-toggle">
       <button class="${true?'active':''}" onclick="location.hash='#project/${slug}/board'">📋 Board</button>
       <button onclick="location.hash='#project/${slug}/tree'">🌳 Tree</button>
+      <button onclick="location.hash='#project/${slug}/plans'">📝 Plans</button>
     </div>
     ${isAuthenticated()?`<a href="#project/${slug}/settings" class="btn btn-s btn-sm">⚙️ Settings</a>`:''}
   </div>`;
@@ -108,6 +109,7 @@ async function renderTree(app,slug){
     <div class="view-toggle">
       <button onclick="location.hash='#project/${slug}/board'">📋 Board</button>
       <button class="${true?'active':''}" onclick="location.hash='#project/${slug}/tree'">🌳 Tree</button>
+      <button onclick="location.hash='#project/${slug}/plans'">📝 Plans</button>
     </div>
     ${isAuthenticated()?`<a href="#project/${slug}/settings" class="btn btn-s btn-sm">⚙️ Settings</a>`:''}
   </div>`;

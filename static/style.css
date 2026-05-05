@@ -440,3 +440,11 @@ select{appearance:auto}
   .pub-agent-grid{grid-template-columns:1fr}
   .pub-stats{grid-template-columns:repeat(2,1fr)}
 }
+
+/* Plans */
+.plans-list{display:flex;flex-direction:column;gap:10px}
+.plan-card{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rm);padding:14px 16px;cursor:pointer;transition:border-color .15s}
+.plan-card:hover{border-color:var(--ac)}
+.plan-filter-btn{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rs);padding:4px 12px;font-size:12px;color:var(--t2);cursor:pointer;transition:all .15s}
+.plan-filter-btn:hover{border-color:var(--ac);color:var(--t1)}
+.plan-filter-btn.active{background:color-mix(in srgb, var(--fc, var(--ac)) 15%, var(--bg1));border-color:var(--fc, var(--ac));color:var(--fc, var(--ac))}

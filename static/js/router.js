@@ -4,6 +4,8 @@ function getRoute(){
   if(h==='#overview')return{view:'overview'};
   if(h.startsWith('#docs/')){const s=h.split('/')[1];return{view:'docs',slug:s}}
   if(h==='#docs')return{view:'docs'};
+  if(h==='#plans')return{view:'plans'};
+  if(h.startsWith('#plans?'))return{view:'plans'};
   if(h==='#analytics')return{view:'analytics'};
   if(h==='#discussions')return{view:'discussions'};
   if(h==='#activity')return{view:'activity'};
@@ -30,6 +32,7 @@ async function render(){
     case'settings':if(slug)await renderProjectSettings(app,slug);else await renderSystemSettings(app);break;
     case'agents':await renderAgents(app);break;
     case'analytics':await renderAnalytics(app);break;
+    case'plans':await renderPlans(app,slug);break;
     case'discussions':await renderDiscussions(app);break;
     case'activity':await renderActivity(app);break;
     case'inbox':await renderInbox(app);break;
