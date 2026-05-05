@@ -800,3 +800,91 @@ def list_project_tasks_tree(params, query, body, headers):
 
     conn.close()
     return 200, {"tree": roots, "total": len(all_tasks)}
+
+
+# ── Automation Endpoints (for Hermes cron) ───────────────────────────────
+
+@router.get("/api/automation/overdue")
+def list_overdue_tasks(params, query, body, headers):
+    """List tasks past their due_date that are not done.
+
+    Designed for cron consumption — Hermes cron calls this daily
+    to generate overdue alerts. No scheduler needed in AgentBoard.
+    """
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT t.*, p.name as project_name, p.slug as project_slug
+           FROM tasks t
+           JOIN projects p ON t.project_id = p.id
+           WHERE p.is_archived = 0
+             AND t.status NOT IN ('done', 'completed', 'cancelled')
+             AND t.due_date IS NOT NULL
+             AND t.due_date < date('now')
+           ORDER BY t.due_date ASC""",
+    ).fetchall()
+    conn.close()
+
+    tasks = []
+    for r in rows:
+        task = _task_row_to_dict(r)
+        task["project_name"] = r["project_name"]
+        task["project_slug"] = r["project_slug"]
+        tasks.append(task)
+
+    return 200, {"overdue": tasks, "count": len(tasks)}
+
+
+@router.get("/api/automation/daily")
+def daily_stats(params, query, body, headers):
+    """Daily digest endpoint for cron consumption.
+
+    Returns counts and summaries suitable for a daily notification.
+    Hermes cron calls this to generate daily standup messages.
+    """
+    conn = get_db()
+
+    # Overall counts
+    counts = conn.execute("""
+        SELECT status, COUNT(*) as cnt
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE p.is_archived = 0
+        GROUP BY status
+    """).fetchall()
+
+    # Tasks completed today
+    completed_today = conn.execute("""
+        SELECT t.title, p.name as project_name, p.slug as project_slug
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE t.status IN ('done', 'completed')
+          AND date(t.completed_at) = date('now')
+    """).fetchall()
+
+    # Overdue count
+    overdue_count = conn.execute("""
+        SELECT COUNT(*) as cnt
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE p.is_archived = 0
+          AND t.status NOT IN ('done', 'completed', 'cancelled')
+          AND t.due_date IS NOT NULL
+          AND t.due_date < date('now')
+    """).fetchone()["cnt"]
+
+    # Active plans
+    active_plans = conn.execute("""
+        SELECT COUNT(*) as cnt
+        FROM plans
+        WHERE status IN ('proposed', 'approved', 'executing')
+    """).fetchone()["cnt"]
+
+    conn.close()
+
+    return 200, {
+        "status_counts": {r["status"]: r["cnt"] for r in counts},
+        "completed_today": [dict(r) for r in completed_today],
+        "completed_today_count": len(completed_today),
+        "overdue_count": overdue_count,
+        "active_plans": active_plans,
+    }
