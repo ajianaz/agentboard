@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -532,7 +532,38 @@ CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
 
 -- Step 3: Create type index if missing
 CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);
-CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);""",
+CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
+    """,
+        12: """-- Schema v12: hierarchical tasks (depth) + plans table
+
+-- Step 1: Add depth column to tasks for hierarchy performance
+ALTER TABLE tasks ADD COLUMN depth INTEGER DEFAULT 0;
+
+-- Step 2: Hierarchy indexes
+CREATE INDEX IF NOT EXISTS idx_tasks_parent_status ON tasks(parent_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_depth ON tasks(project_id, depth);
+CREATE INDEX IF NOT EXISTS idx_tasks_depth ON tasks(depth);
+
+-- Step 3: Plans table for AI planning workflow
+CREATE TABLE IF NOT EXISTS plans (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    description TEXT NOT NULL DEFAULT '',
+    context TEXT DEFAULT '',
+    steps TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'proposed' CHECK(status IN ('proposed','approved','executing','done','rejected')),
+    assignee TEXT DEFAULT '',
+    metadata TEXT DEFAULT '{}',
+    mission_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_plans_project ON plans(project_id);
+CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
+CREATE INDEX IF NOT EXISTS idx_plans_assignee ON plans(assignee);
+CREATE INDEX IF NOT EXISTS idx_plans_created ON plans(created_at DESC);
+    """,
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)
