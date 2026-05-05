@@ -14,6 +14,11 @@ function openTaskPanel(task){
   h+=`<div><label>Due Date</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${task.due_date||'—'}</div></div></div></div>`;
   h+=`<div class="panel-sec"><label>Tags</label><div style="padding:6px 0;font-size:13px;color:var(--t1)">${esc((task.tags||[]).join(', ')||'—')}</div></div>`;
   h+=`<div class="panel-sec"><label>Description</label><div class="panel-desc-readonly">${md(task.description||'No description')}</div></div>`;
+  // ── Hierarchy: parent link + children ──
+  if(task.parent_id){
+    h+=`<div class="panel-sec"><label>Parent Task</label><div style="padding:4px 0"><a href="#" onclick="event.preventDefault();editTask('${task.parent_id}')" style="color:var(--pri);text-decoration:none">⬆️ ${esc(task.parent_id)}</a></div></div>`;
+  }
+  h+=`<div id="tp-children" class="panel-sec"></div>`;
   if(task.status==='proposed'&&authed){
     h+=`<div style="display:flex;gap:8px"><button class="btn btn-ok" onclick="hitlAction('${task.id}','todo','approved')">✓ Approve</button><button class="btn btn-d" onclick="hitlAction('${task.id}','rejected','rejected')">✕ Reject</button></div>`;
   }
@@ -29,6 +34,17 @@ function openTaskPanel(task){
   document.getElementById('panel-bg').classList.add('open');
   p.classList.add('open');
   loadComments(task.id);
+  loadChildren(task.id, task.project_id);
+}
+async function loadChildren(taskId, projectId){
+  const el=document.getElementById('tp-children');
+  if(!el)return;
+  const data=await api('GET','/api/tasks/'+taskId+'/children');
+  const kids=data?.children||[];
+  if(!kids.length){el.remove();return}
+  const doneKids=kids.filter(c=>c.status==='done').length;
+  const statusIcon=s=>({proposed:'⏳',todo:'📋',in_progress:'🔄',review:'👀',done:'✅',cancelled:'❌'}[s]||'📋');
+  el.innerHTML=`<label>Subtasks (${doneKids}/${kids.length} done)</label><div class="tp-children-list">${kids.map(c=>`<div class="tp-child-row" style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;cursor:pointer" onclick="editTask('${c.id}')"><span>${statusIcon(c.status)}</span><span style="color:${c.status==='done'?'var(--t2)':'var(--t1)'};${c.status==='done'?'text-decoration:line-through':''}">${esc(c.title)}</span></div>`).join('')}</div>`;
 }
 function editTask(id){
   // Reload task data then show editable panel

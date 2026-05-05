@@ -111,6 +111,7 @@ select{appearance:auto}
 .kb-card-meta{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--t2);flex-wrap:wrap}
 .kb-card-priority{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 .kb-card-assignee{background:var(--bg3);padding:1px 6px;border-radius:4px}
+.kb-card-subtask{background:var(--bg3);padding:1px 6px;border-radius:4px;font-size:.75rem;opacity:.85}
 .kb-card-due{margin-left:auto}
 .kb-card-proposed{border-left:3px solid var(--warn)}
 .kb-card-review{border-left:3px solid var(--rev)}

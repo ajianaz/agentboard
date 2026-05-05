@@ -16,6 +16,9 @@ async function renderBoard(app,slug){
   if(!proj){app.innerHTML='<div class="empty"><h3>Project not found</h3></div>';return}
   const project=proj.project||proj;
   const tasks=tasksData?.tasks||[];
+  // Build parent→children index for subtask badges
+  const childMap={};
+  tasks.forEach(t=>{if(t.parent_id){(childMap[t.parent_id]||(childMap[t.parent_id]=[])).push(t)}});
   const statuses=project.statuses||[
     {key:'proposed',label:'Proposed',color:'#f59e0b'},
     {key:'todo',label:'To Do',color:'#6b7280'},
@@ -53,11 +56,15 @@ async function renderBoard(app,slug){
     colTasks.forEach(t=>{
       const cardClass=t.status==='proposed'?'kb-card-proposed':t.status==='review'?'kb-card-review':'';
       const tt=t.type||'task';
+      const kids=childMap[t.id]||[];
+      const doneKids=kids.filter(c=>c.status==='done').length;
+      const subtaskBadge=kids.length?`<span class="kb-card-subtask" title="${doneKids}/${kids.length} subtasks done">📋 ${doneKids}/${kids.length}</span>`:'';
       h+=`<div class="kb-card ${cardClass}" draggable="true" data-id="${t.id}" ondragstart="onDragStart(event)" onclick="loadAndOpenTask('${t.id}')">
         <div class="kb-card-title">${esc(t.title)}</div>
         <div class="kb-card-meta">
           <div class="kb-card-priority" style="background:${priorities[t.priority]||priorities.none}"></div>
           <span class="type-badge type-${tt}">${taskTypes[tt]||'📋'}</span>
+          ${subtaskBadge}
           ${t.assignee?`<span class="kb-card-assignee">${esc(t.assignee)}</span>`:''}
           ${t.due_date?`<span class="kb-card-due">📅 ${t.due_date.slice(5)}</span>`:''}
         </div>
