@@ -13,6 +13,8 @@ Endpoints:
     POST   /api/plans/{id}/reject               — reject a proposed plan
     POST   /api/plans/{id}/execute              — start executing an approved plan
     POST   /api/plans/{id}/complete             — mark execution as completed
+    POST   /api/plans/{id}/step/{index}         — update step status/result (gate logic)
+    GET    /api/plans/{id}/progress             — step-level progress summary
 """
 
 import json
@@ -20,10 +22,11 @@ from db import get_db, gen_id
 from api import router
 from api.validation import (
     validate_enum, validate_text, validate_steps,
-    VALID_PLAN_STATUSES,
+    VALID_PLAN_STATUSES, VALID_STEP_STATUSES,
     MAX_DESCRIPTION_LENGTH, MAX_CONTEXT_LENGTH,
 )
 from webhook import on_plan_created, on_plan_status_changed
+from event_bus import publish
 
 
 # ---------------------------------------------------------------------------
@@ -43,13 +46,18 @@ def _parse_body(body: bytes) -> dict:
 def _plan_row_to_dict(row) -> dict:
     """Convert a plan Row to a plain dict with JSON fields parsed."""
     d = dict(row)
-    for field in ("steps", "metadata"):
+    for field in ("steps", "metadata", "step_results"):
         raw = d.get(field)
         if isinstance(raw, str):
             try:
                 d[field] = json.loads(raw)
             except (json.JSONDecodeError, ValueError):
-                d[field] = [] if field == "steps" else {}
+                if field == "steps" or field == "step_results":
+                    d[field] = []
+                else:
+                    d[field] = {}
+        elif raw is None and field == "step_results":
+            d[field] = []
     return d
 
 
@@ -290,6 +298,9 @@ def create_plan(params, query, body, headers):
 
     conn.commit()
     conn.close()
+
+    publish("plan_created", {"id": plan_id, "project": slug, "title": plan.get("title", "")})
+
     return 201, {"plan": plan}
 
 
@@ -386,11 +397,12 @@ def update_plan(params, query, body, headers):
 
     conn.commit()
     conn.close()
+
+    publish("plan_updated", {"id": plan_id, "title": updated.get("title", "")})
+
     return 200, {"plan": updated}
 
 
-# ---------------------------------------------------------------------------
-# DELETE /api/plans/{id}
 # ---------------------------------------------------------------------------
 
 @router.delete("/api/plans/{id}")
@@ -419,6 +431,9 @@ def delete_plan(params, query, body, headers):
 
     conn.commit()
     conn.close()
+
+    publish("plan_deleted", {"id": plan_id, "title": plan.get("title", "")})
+
     return 200, {"message": "Plan deleted", "plan_id": plan_id}
 
 
@@ -496,3 +511,208 @@ def execute_plan(params, query, body, headers):
 def complete_plan(params, query, body, headers):
     """Mark an executing plan as done."""
     return _status_transition(params["id"], "done", headers.get("x-actor", "owner"))
+
+
+# ---------------------------------------------------------------------------
+# POST /api/plans/{id}/step/{index} — step-level workflow gates
+# ---------------------------------------------------------------------------
+
+@router.post("/api/plans/{id}/step/{index}")
+def update_step(params, query, body, headers):
+    """Update the status/result of a single step within an executing plan.
+
+    Enforces gate logic: steps must be completed in order. A step can only
+    be marked 'done' (or 'failed'/'skipped') if all previous steps are done.
+    Setting status to 'in_progress' is always allowed (to start the first step).
+
+    Body: {"status": "done", "result": "Created migration file"}
+    """
+    plan_id = params["id"]
+    try:
+        step_index = int(params["index"])
+    except (ValueError, TypeError):
+        return 400, {"error": "Step index must be an integer", "code": "VALIDATION_ERROR"}
+
+    data = _parse_body(body)
+    if data is None:
+        return 400, {"error": "Invalid JSON in request body", "code": "BAD_REQUEST"}
+    actor = headers.get("x-actor", "owner")
+
+    # Validate status field
+    status = data.get("status")
+    if not status or status not in VALID_STEP_STATUSES:
+        return 400, {"error": f"Invalid step status: must be one of {sorted(VALID_STEP_STATUSES)}", "code": "VALIDATION_ERROR"}
+
+    # Validate optional result field
+    result = data.get("result", "")
+    if not isinstance(result, str):
+        result = str(result)
+    result = result[:10000]
+
+    conn = get_db()
+    row = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if not row:
+        conn.close()
+        return 404, {"error": f"Plan '{plan_id}' not found", "code": "NOT_FOUND"}
+
+    plan = _plan_row_to_dict(row)
+
+    # Plan must be in executing status
+    if plan["status"] != "executing":
+        conn.close()
+        return 400, {"error": f"Cannot update steps on a plan in '{plan['status']}' status. Plan must be executing.", "code": "TRANSITION_ERROR"}
+
+    # Validate index range
+    steps = plan.get("steps", [])
+    if step_index < 0 or step_index >= len(steps):
+        conn.close()
+        return 400, {"error": f"Step index {step_index} out of range (plan has {len(steps)} steps, indices 0-{len(steps) - 1})", "code": "VALIDATION_ERROR"}
+
+    # Initialize step_results if empty or misaligned with steps
+    step_results = plan.get("step_results", [])
+    if len(step_results) != len(steps):
+        step_results = [
+            {"status": "pending", "result": "", "started_at": "", "completed_at": ""}
+            for _ in steps
+        ]
+
+    # Gate logic: for terminal statuses (done/failed/skipped), check all previous steps are done
+    if status in ("done", "failed", "skipped") and step_index > 0:
+        prev_not_done = [
+            i for i in range(step_index)
+            if step_results[i].get("status") not in ("done", "skipped")
+        ]
+        if prev_not_done:
+            conn.close()
+            return 400, {
+                "error": f"Cannot complete step {step_index}: previous steps not all done (steps {prev_not_done} are not done/skipped)",
+                "code": "GATE_ERROR",
+            }
+
+    # Build the updated step result entry
+    import datetime as _dt
+    now = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    existing = step_results[step_index] if step_index < len(step_results) else {}
+
+    updated_entry = {
+        "status": status,
+        "result": result or existing.get("result", ""),
+        "started_at": existing.get("started_at", now if status == "in_progress" else ""),
+        "completed_at": now if status in ("done", "failed", "skipped") else existing.get("completed_at", ""),
+    }
+
+    # Preserve started_at if already set
+    if existing.get("started_at"):
+        updated_entry["started_at"] = existing["started_at"]
+
+    step_results[step_index] = updated_entry
+
+    # Write back step_results
+    conn.execute(
+        "UPDATE plans SET step_results = ?, updated_at = datetime('now') WHERE id = ?",
+        (json.dumps(step_results), plan_id),
+    )
+
+    _log_activity(conn, plan["project_id"], "plan", plan_id, "step_updated", actor, {
+        "step_index": step_index,
+        "step_title": steps[step_index].get("title", "")[:100],
+        "step_status": status,
+        "step_result": result[:200] if result else "",
+    })
+
+    # Auto-complete detection: if ALL steps are done/skipped, auto-transition plan to "done"
+    all_terminal = all(
+        sr.get("status") in ("done", "skipped")
+        for sr in step_results
+    )
+    if all_terminal and len(step_results) > 0:
+        conn.execute(
+            "UPDATE plans SET status = 'done', updated_at = datetime('now') WHERE id = ?",
+            (plan_id,),
+        )
+        _log_activity(conn, plan["project_id"], "plan", plan_id, "status_done", actor, {
+            "old_status": "executing",
+            "new_status": "done",
+            "reason": "auto_completed: all steps done",
+        })
+
+    updated = _plan_row_to_dict(
+        conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    )
+
+    if all_terminal and len(step_results) > 0:
+        project_slug = _resolve_project_slug(conn, plan["project_id"])
+        on_plan_status_changed(updated, "executing", "done", project_slug or "")
+
+    conn.commit()
+    conn.close()
+
+    publish("plan_step_updated", {
+        "plan_id": plan_id,
+        "step_index": step_index,
+        "step_status": status,
+        "all_done": all_terminal and len(step_results) > 0,
+    })
+
+    return 200, {"plan": updated, "step_index": step_index}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/plans/{id}/progress — step-level progress summary
+# ---------------------------------------------------------------------------
+
+@router.get("/api/plans/{id}/progress")
+def get_plan_progress(params, query, body, headers):
+    """Get step-level progress for a plan.
+
+    Returns summary counts and per-step status/title/result.
+    """
+    plan_id = params["id"]
+    conn = get_db()
+
+    row = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if not row:
+        conn.close()
+        return 404, {"error": f"Plan '{plan_id}' not found", "code": "NOT_FOUND"}
+
+    plan = _plan_row_to_dict(row)
+    steps = plan.get("steps", [])
+    step_results = plan.get("step_results", [])
+
+    # Ensure step_results is aligned with steps
+    if len(step_results) != len(steps):
+        step_results = [
+            {"status": "pending", "result": "", "started_at": "", "completed_at": ""}
+            for _ in steps
+        ]
+
+    # Count statuses
+    completed = sum(1 for sr in step_results if sr.get("status") == "done")
+    in_progress = sum(1 for sr in step_results if sr.get("status") == "in_progress")
+    failed = sum(1 for sr in step_results if sr.get("status") == "failed")
+    pending = sum(1 for sr in step_results if sr.get("status") == "pending")
+    skipped = sum(1 for sr in step_results if sr.get("status") == "skipped")
+
+    # Build per-step detail
+    step_details = []
+    for i, (step, sr) in enumerate(zip(steps, step_results)):
+        step_details.append({
+            "index": i,
+            "title": step.get("title", ""),
+            "status": sr.get("status", "pending"),
+            "result": sr.get("result", ""),
+        })
+
+    conn.close()
+    return 200, {
+        "plan_id": plan_id,
+        "status": plan["status"],
+        "total_steps": len(steps),
+        "completed": completed,
+        "in_progress": in_progress,
+        "failed": failed,
+        "pending": pending,
+        "skipped": skipped,
+        "steps": step_details,
+    }

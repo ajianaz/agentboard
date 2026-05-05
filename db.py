@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -563,6 +563,9 @@ CREATE INDEX IF NOT EXISTS idx_plans_project ON plans(project_id);
 CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
 CREATE INDEX IF NOT EXISTS idx_plans_assignee ON plans(assignee);
 CREATE INDEX IF NOT EXISTS idx_plans_created ON plans(created_at DESC);
+    """,
+        13: """-- Schema v13: step_results column for step-level workflow gates
+ALTER TABLE plans ADD COLUMN step_results TEXT DEFAULT '[]';
     """,
     }
     for ver in range(from_ver + 1, to_ver + 1):

@@ -162,10 +162,19 @@ def validate_text(value: Any, max_len: int = MAX_DESCRIPTION_LENGTH, field_name:
     return text
 
 
+VALID_STEP_STATUSES = frozenset({
+    "pending", "in_progress", "done", "failed", "skipped",
+})
+
+MAX_STEP_RESULT_LENGTH = 10000
+
+
 def validate_steps(value: Any) -> tuple[list, str | None]:
     """Validate plan steps: must be a JSON array of objects with 'title' field.
 
     Each step should have: {title: str, description?: str, order?: int}
+    Optional step-level tracking fields: {status?, result?, started_at?, completed_at?}
+    If status is provided it must be one of VALID_STEP_STATUSES.
     Returns (validated_steps_list, error_message).
     """
     if value is None:
@@ -185,9 +194,22 @@ def validate_steps(value: Any) -> tuple[list, str | None]:
             return [], f"Step {i+1} must be an object"
         if "title" not in step or not isinstance(step["title"], str) or not step["title"].strip():
             return [], f"Step {i+1} must have a non-empty 'title'"
-        validated.append({
+        entry: dict[str, Any] = {
             "title": step["title"].strip()[:500],
             "description": step.get("description", "")[:2000] if isinstance(step.get("description"), str) else "",
             "order": step.get("order", i + 1) if isinstance(step.get("order"), int) else (i + 1),
-        })
+        }
+        # Validate optional step-level tracking fields
+        if "status" in step:
+            if not isinstance(step["status"], str) or step["status"] not in VALID_STEP_STATUSES:
+                return [], f"Step {i+1} has invalid status: must be one of {sorted(VALID_STEP_STATUSES)}"
+            entry["status"] = step["status"]
+        if "result" in step:
+            result = step["result"] if isinstance(step["result"], str) else str(step["result"])
+            entry["result"] = result[:MAX_STEP_RESULT_LENGTH]
+        if "started_at" in step and isinstance(step["started_at"], str):
+            entry["started_at"] = step["started_at"].strip()
+        if "completed_at" in step and isinstance(step["completed_at"], str):
+            entry["completed_at"] = step["completed_at"].strip()
+        validated.append(entry)
     return validated, None

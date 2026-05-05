@@ -20,6 +20,7 @@ from api.validation import (
     MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH,
 )
 from webhook import on_task_created, on_task_assigned, on_task_status_changed, on_task_comment
+from event_bus import publish
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +321,8 @@ def create_task(params, query, body, headers):
     # Fire webhook notification
     on_task_created(task, actor, slug)
 
+    publish("task_created", {"id": task_id, "project": slug, "title": task.get("title", "")})
+
     return 201, {"task": task}
 
 
@@ -539,6 +542,8 @@ def update_task(params, query, body, headers):
         if comment_text:
             on_task_comment(task, actor, comment_text, project_slug)
 
+    publish("task_updated", {"id": task_id, "project": project_slug, "title": task.get("title", "")})
+
     return 200, {"task": task}
 
 
@@ -572,6 +577,8 @@ def delete_task(params, query, body, headers):
 
     conn.commit()
     conn.close()
+
+    publish("task_deleted", {"id": task_id, "project": slug})
 
     return 200, {"deleted": True, "id": task_id}
 
