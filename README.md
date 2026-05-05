@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-v1.5.3-green.svg)](https://github.com/ajianaz/agentboard/releases)
+[![Version](https://img.shields.io/badge/version-v0.6.0-yellow.svg)](https://github.com/ajianaz/agentboard/releases)
 
 ## What is it?
 
@@ -82,10 +82,10 @@ Open **http://localhost:8765** — done.
 |-----|-------------|
 | `latest` | Stable release (main branch) |
 | `develop` | Bleeding edge (develop branch) |
-| `v1.5.3` | Latest stable |
-| `v1.5.0` | Standalone webhooks, docs hub, page visibility |
-| `v1.4.0` | Standalone tools, agent sync, public readiness |
-| `v1.3.0` | Analytics engine, discussion system, CI |
+| `v0.6.0` | Latest (pre-release) |
+| `v0.5.0` | Standalone webhooks, docs hub, page visibility |
+| `v0.4.0` | Standalone tools, agent sync, public readiness |
+| `v0.3.0` | Analytics engine, discussion system, CI |
 | `v1.0.0` | Initial release |
 
 ### Option C: Docker (build from source)
@@ -131,7 +131,7 @@ public_read = false
 
 You can override the API key with the `AGENTBOARD_API_KEY` environment variable, or set a custom key file path in `agentboard.toml`.
 
-### Multi-Key Auth & Rotation (v1.2.0)
+### Multi-Key Auth & Rotation (v0.2.0)
 
 AgentBoard supports multiple API keys with rotation and grace periods:
 
