@@ -378,3 +378,122 @@ def webhook_agent_event(params, query, body, headers):
     conn.close()
 
     return 200, result
+
+
+# ---------------------------------------------------------------------------
+# POST /api/webhook/plan-create
+# ---------------------------------------------------------------------------
+
+@router.post("/api/webhook/plan-create")
+def webhook_plan_create(params, query, body, headers):
+    """Receive plan creation from an agent.
+
+    Payload:
+    {
+        "agent": "cto",                      // agent name (for activity log + assignee)
+        "project_slug": "agentboard",        // target project slug
+        "description": "Plan to...",         // plan description (required)
+        "context": "Background...",          // optional context
+        "steps": [                           // optional steps array
+            {"title": "Step 1", "description": "..."},
+            {"title": "Step 2"}
+        ],
+        "mission_id": "task-id",            // optional: link to parent task
+        "metadata": {}                       // optional: freeform metadata
+    }
+    """
+    try:
+        data = json.loads(body) if body else {}
+    except (json.JSONDecodeError, TypeError):
+        return 400, {"error": "Invalid JSON body", "code": "BAD_REQUEST"}
+
+    agent = str(data.get("agent", "")).strip()
+    project_slug = str(data.get("project_slug", "")).strip()
+    description = str(data.get("description", "")).strip()
+
+    if not agent:
+        return 400, {"error": "agent is required", "code": "VALIDATION_ERROR"}
+    if not project_slug:
+        return 400, {"error": "project_slug is required", "code": "VALIDATION_ERROR"}
+    if not description:
+        return 400, {"error": "description is required", "code": "VALIDATION_ERROR"}
+
+    # Rate limit
+    if not _check_rate_limit(agent):
+        return 429, {"error": "Rate limit exceeded (60/min)", "code": "RATE_LIMITED"}
+
+    # Resolve project
+    conn = get_db()
+    project = conn.execute("SELECT id FROM projects WHERE slug = ?", (project_slug,)).fetchone()
+    if not project:
+        conn.close()
+        return 404, {"error": f"Project '{project_slug}' not found", "code": "NOT_FOUND"}
+
+    project_id = project["id"]
+
+    # Validate mission_id if provided
+    mission_id = str(data.get("mission_id", "")).strip() or None
+    if mission_id:
+        mission = conn.execute(
+            "SELECT id FROM tasks WHERE id = ? AND project_id = ?",
+            (mission_id, project_id),
+        ).fetchone()
+        if not mission:
+            conn.close()
+            return 400, {"error": f"Mission task '{mission_id}' not found in project '{project_slug}'", "code": "VALIDATION_ERROR"}
+
+    # Validate steps
+    steps = data.get("steps")
+    if steps is not None and not isinstance(steps, list):
+        conn.close()
+        return 400, {"error": "steps must be a JSON array", "code": "VALIDATION_ERROR"}
+    if steps is None:
+        steps = []
+
+    # Validate each step has title
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict) or not step.get("title"):
+            conn.close()
+            return 400, {"error": f"Step {i} must have a 'title' field", "code": "VALIDATION_ERROR"}
+
+    context = str(data.get("context", "")).strip()
+    metadata = data.get("metadata") or {}
+    assignee = agent  # Default assignee = the creating agent
+
+    # Create plan
+    from db import gen_id
+    plan_id = gen_id()
+    conn.execute(
+        """INSERT INTO plans (id, project_id, description, context, steps, status,
+                             assignee, metadata, mission_id, created_by)
+           VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?)""",
+        (plan_id, project_id, description, context, json.dumps(steps),
+         assignee, json.dumps(metadata), mission_id, agent),
+    )
+
+    # Log activity
+    conn.execute(
+        """INSERT INTO activity (id, project_id, target_type, target_id, action, actor, detail)
+           VALUES (?, ?, 'plan', ?, 'created', ?, ?)""",
+        (gen_id(), project_id, plan_id, agent,
+         json.dumps({"description": description[:100], "steps_count": len(steps)})),
+    )
+
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    plan_dict = dict(plan) if plan else {}
+    for field in ("steps", "metadata"):
+        raw = plan_dict.get(field, "")
+        if isinstance(raw, str):
+            try:
+                plan_dict[field] = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                plan_dict[field] = [] if field == "steps" else {}
+
+    # Fire outgoing webhook
+    from webhook import on_plan_created
+    on_plan_created(plan_dict, agent, project_slug)
+
+    conn.commit()
+    conn.close()
+
+    return 201, {"plan_id": plan_id, "status": "proposed", "project": project_slug}
