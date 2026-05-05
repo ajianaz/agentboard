@@ -358,6 +358,27 @@ select{appearance:auto}
 .type-custom{background:rgba(107,114,128,.1);color:#9ca3af}
 .kb-card-type{position:absolute;top:8px;right:8px}
 
+/* Tree view */
+.tree-view{padding:8px 24px 24px;overflow-y:auto;height:calc(100vh - 140px)}
+.tree-header{display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--t2);border-bottom:1px solid var(--bd);margin-bottom:4px}
+.tree-header span{flex:1}.tree-header .th-type{width:80px;text-align:center}.tree-header .th-pri{width:60px;text-align:center}.tree-header .th-assignee{width:100px}.tree-header .th-due{width:70px}
+.tree-row{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:var(--rs);cursor:pointer;transition:background .12s;border-bottom:1px solid var(--bd);font-size:13px}
+.tree-row:hover{background:var(--bg3)}
+.tree-row .tr-indent{flex-shrink:0}
+.tree-row .tr-toggle{width:16px;text-align:center;font-size:10px;color:var(--t2);flex-shrink:0;user-select:none;cursor:pointer}
+.tree-row .tr-toggle:hover{color:var(--t0)}
+.tree-row .tr-title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;color:var(--t0)}
+.tree-row .tr-type{width:80px;text-align:center}
+.tree-row .tr-pri{width:60px;text-align:center}
+.tree-row .tr-assignee{width:100px;font-size:12px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tree-row .tr-due{width:70px;font-size:11px;color:var(--t2);text-align:right}
+.tree-children{border-left:1px solid var(--bd);margin-left:20px}
+.tree-empty{text-align:center;color:var(--t2);padding:32px;font-size:13px}
+.view-toggle{display:flex;gap:2px;background:var(--bg2);border-radius:var(--rs);padding:2px}
+.view-toggle button{padding:5px 12px;border:none;background:none;color:var(--t2);font-size:12px;font-weight:500;border-radius:4px;cursor:pointer;transition:all .12s}
+.view-toggle button:hover{color:var(--t1)}
+.view-toggle button.active{background:var(--ac);color:#fff}
+
 /* Message inbox */
 .msg-badge{background:var(--err);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:16px;text-align:center;line-height:1.4}
 .msg-item{padding:10px 16px;border-bottom:1px solid var(--bd);cursor:pointer;transition:background .15s}
@@ -872,6 +893,7 @@ async function render(){
   switch(view){
     case'overview':if(!isAuthenticated()){await renderPublicDashboard(app)}else{await renderOverview(app)};break;
     case'board':await renderBoard(app,slug);break;
+    case'tree':await renderTree(app,slug);break;
     case'docs':await renderDocsHub(app,slug);break;
     case'settings':if(slug)await renderProjectSettings(app,slug);else await renderSystemSettings(app);break;
     case'agents':await renderAgents(app);break;
@@ -1047,6 +1069,10 @@ async function renderBoard(app,slug){
       ${isAuthenticated()?`<button class="btn btn-p btn-sm" onclick="showNewTask('${slug}')">+ New Task</button>`:''}
     </div>
     <a href="#project/${slug}/docs" class="btn btn-s btn-sm">📄 Docs</a>
+    <div class="view-toggle">
+      <button class="${true?'active':''}" onclick="location.hash='#project/${slug}/board'">📋 Board</button>
+      <button onclick="location.hash='#project/${slug}/tree'">🌳 Tree</button>
+    </div>
     ${isAuthenticated()?`<a href="#project/${slug}/settings" class="btn btn-s btn-sm">⚙️ Settings</a>`:''}
   </div>`;
   h+=`<div class="kb-board">`;
@@ -1075,6 +1101,110 @@ async function renderBoard(app,slug){
   // Restore filter selections after DOM re-render
   const af=document.getElementById('kb-filter-assignee');
   if(af)af.value=assignFilter;
+}
+
+// ── Tree View ──
+async function renderTree(app,slug){
+  const typeFilter=new URLSearchParams(location.hash.split('?')[1]||'').get('type')||'';
+  const priFilter=new URLSearchParams(location.hash.split('?')[1]||'').get('priority')||'';
+  let taskUrl='/api/projects/'+slug+'/tasks';
+  const qp=[];
+  if(typeFilter)qp.push('type='+typeFilter);
+  if(priFilter)qp.push('priority='+priFilter);
+  if(qp.length)taskUrl+='?'+qp.join('&');
+  const[proj,tasksData]=await Promise.all([
+    api('GET','/api/projects/'+slug),
+    api('GET',taskUrl)
+  ]);
+  if(!proj){app.innerHTML='<div class="empty"><h3>Project not found</h3></div>';return}
+  const project=proj.project||proj;
+  const tasks=tasksData?.tasks||[];
+  const priorities={'critical':'#ef4444','high':'#f97316','medium':'#eab308','low':'#22c55e','none':'#6b7280'};
+  const statusColors={'proposed':'#f59e0b','todo':'#6b7280','in_progress':'#3b82f6','review':'#8b5cf6','done':'#22c55e'};
+  const taskTypes={milestone:'🏁',feature:'✨',bugfix:'🐛',chore:'🔧',task:'📋',refactor:'🔧',design:'🎨',content:'✍️',copywriting:'📝',review:'👀',campaign:'📣',outreach:'🤝',analytics:'📊',planning:'📋',operations:'⚙️',research:'🔍',meeting:'🤝'};
+  const usedTypes=new Set(tasks.map(t=>t.type||'task'));
+  const allFilterTypes=[...new Set([...Object.keys(taskTypes),...usedTypes])].sort();
+
+  // Build filter params helper
+  function filterParams(extra=''){const p=new URLSearchParams();if(typeFilter)p.set('type',typeFilter);if(priFilter)p.set('priority',priFilter);const s=p.toString();return s?(s+(extra?'&'+extra:'')):(extra||'')}
+
+  let h=`<div class="kb-header">
+    <h2>${project.icon||'📋'} ${esc(project.name)}</h2>
+    <div class="kb-filters">
+      <select id="kb-filter-type" onchange="location.hash='#project/${slug}/tree?'+filterParams('type='+this.value)"><option value="">All types</option>${allFilterTypes.map(k=>`<option value="${k}" ${typeFilter===k?'selected':''}>${taskTypes[k]||'🏷️'} ${k}</option>`).join('')}</select>
+      <select id="kb-filter-priority" onchange="location.hash='#project/${slug}/tree?'+filterParams('priority='+this.value)"><option value="">All priorities</option>${Object.keys(priorities).map(k=>`<option value="${k}" ${priFilter===k?'selected':''}>${k}</option>`).join('')}</select>
+      ${isAuthenticated()?`<button class="btn btn-p btn-sm" onclick="showNewTask('${slug}')">+ New Task</button>`:''}
+    </div>
+    <a href="#project/${slug}/docs" class="btn btn-s btn-sm">📄 Docs</a>
+    <div class="view-toggle">
+      <button onclick="location.hash='#project/${slug}/board'">📋 Board</button>
+      <button class="${true?'active':''}" onclick="location.hash='#project/${slug}/tree'">🌳 Tree</button>
+    </div>
+    ${isAuthenticated()?`<a href="#project/${slug}/settings" class="btn btn-s btn-sm">⚙️ Settings</a>`:''}
+  </div>`;
+
+  // Build tree structure from flat tasks
+  const taskMap={};
+  tasks.forEach(t=>{taskMap[t.id]=t; t._children=[]});
+  const roots=[];
+  tasks.forEach(t=>{
+    if(t.parent_id&&taskMap[t.parent_id]){taskMap[t.parent_id]._children.push(t)}
+    else{roots.push(t)}
+  });
+  // Sort: by priority weight desc, then by title
+  const priWeight={critical:4,high:3,medium:2,low:1,none:0};
+  function sortTasks(arr){arr.sort((a,b)=>{(priWeight[b.priority]||0)-(priWeight[a.priority]||0)||a.title.localeCompare(b.title)});arr.forEach(t=>sortTasks(t._children))}
+  sortTasks(roots);
+
+  // Track expanded state in sessionStorage
+  const expanded=new Set(JSON.parse(sessionStorage.getItem('tree_expanded_'+slug)||'[]'));
+
+  function treeHtml(nodes,depth=0){
+    let r='';
+    nodes.forEach(t=>{
+      const hasKids=t._children.length>0;
+      const isExp=expanded.has(t.id);
+      const pri=priorities[t.priority]||priorities.none;
+      const sc=statusColors[t.status]||statusColors.todo;
+      const tt=t.type||'task';
+      r+=`<div class="tree-row" data-id="${t.id}" onclick="loadAndOpenTask('${t.id}')">
+        <div class="tr-toggle" onclick="event.stopPropagation();toggleTreeNode('${slug}','${t.id}')">${hasKids?(isExp?'▾':'▸'):''}</div>
+        <div style="width:${depth*20}px;flex-shrink:0"></div>
+        <div style="width:4px;height:16px;border-radius:2px;background:${sc};flex-shrink:0"></div>
+        <span class="tr-title">${esc(t.title)}</span>
+        <span class="tr-type"><span class="type-badge type-${tt}">${taskTypes[tt]||'📋'}</span></span>
+        <span class="tr-pri"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${pri}"></span></span>
+        ${t.assignee?`<span class="tr-assignee">${esc(t.assignee)}</span>`:'<span class="tr-assignee"></span>'}
+        ${t.due_date?`<span class="tr-due">📅 ${t.due_date.slice(5)}</span>`:'<span class="tr-due"></span>'}
+      </div>`;
+      if(hasKids&&isExp){
+        r+=`<div class="tree-children">${treeHtml(t._children,depth+1)}</div>`;
+      }
+    });
+    return r;
+  }
+
+  h+=`<div class="tree-view">
+    <div class="tree-header">
+      <span></span><span>Title</span><span class="th-type">Type</span><span class="th-pri">Pri</span><span class="th-assignee">Assignee</span><span class="th-due">Due</span>
+    </div>`;
+  if(roots.length===0){
+    h+=`<div class="tree-empty">No tasks yet. Click <strong>+ New Task</strong> to get started.</div>`;
+  } else {
+    h+=treeHtml(roots);
+  }
+  h+=`</div>`;
+  app.innerHTML=h;
+}
+
+// Toggle tree node expansion
+function toggleTreeNode(slug,id){
+  const key='tree_expanded_'+slug;
+  const arr=JSON.parse(sessionStorage.getItem(key)||'[]');
+  const idx=arr.indexOf(id);
+  if(idx>=0)arr.splice(idx,1);else arr.push(id);
+  sessionStorage.setItem(key,JSON.stringify(arr));
+  render();
 }
 
 // Drag and drop
