@@ -5,6 +5,7 @@ to ensure consistent input handling across all endpoints.
 """
 
 from typing import Any
+import json
 
 # ---------------------------------------------------------------------------
 # Valid enum sets — match the system's actual values (not arbitrary subsets)
@@ -38,6 +39,10 @@ VALID_VISIBILITIES = frozenset({"public", "hidden"})
 
 VALID_DISCUSSION_STATUSES = frozenset({"open", "closed", "consensus"})
 
+VALID_PLAN_STATUSES = frozenset({
+    "proposed", "approved", "executing", "done", "rejected",
+})
+
 VALID_VERDICTS = frozenset({"approve", "conditional", "reject", ""})
 
 # ---------------------------------------------------------------------------
@@ -50,6 +55,9 @@ MAX_COMMENT_LENGTH = 10000
 MAX_NAME_LENGTH = 200
 MAX_SLUG_LENGTH = 60
 MAX_CONTENT_LENGTH = 500000  # pages can be large markdown documents
+
+MAX_STEPS_LENGTH = 50000  # plans steps JSON array can be large
+MAX_CONTEXT_LENGTH = 50000  # plan context/background text
 
 
 # ---------------------------------------------------------------------------
@@ -152,3 +160,34 @@ def validate_text(value: Any, max_len: int = MAX_DESCRIPTION_LENGTH, field_name:
     if len(text) > max_len:
         text = text[:max_len]
     return text
+
+
+def validate_steps(value: Any) -> tuple[list, str | None]:
+    """Validate plan steps: must be a JSON array of objects with 'title' field.
+
+    Each step should have: {title: str, description?: str, order?: int}
+    Returns (validated_steps_list, error_message).
+    """
+    if value is None:
+        return [], None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            return [], "Steps must be a valid JSON array"
+    if not isinstance(value, list):
+        return [], "Steps must be a JSON array"
+    if len(value) > 100:
+        value = value[:100]
+    validated = []
+    for i, step in enumerate(value):
+        if not isinstance(step, dict):
+            return [], f"Step {i+1} must be an object"
+        if "title" not in step or not isinstance(step["title"], str) or not step["title"].strip():
+            return [], f"Step {i+1} must have a non-empty 'title'"
+        validated.append({
+            "title": step["title"].strip()[:500],
+            "description": step.get("description", "")[:2000] if isinstance(step.get("description"), str) else "",
+            "order": step.get("order", i + 1) if isinstance(step.get("order"), int) else (i + 1),
+        })
+    return validated, None

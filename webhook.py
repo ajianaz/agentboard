@@ -10,6 +10,8 @@ Events:
     task.comment    — comment added to task
     task.approved   — owner approved proposed task
     task.rejected   — owner rejected proposed task
+    plan.created    — new plan created (proposed)
+    plan.status_changed — plan status changed (approve/reject/execute/complete)
     discussion.created   — new discussion created with participants
     discussion.feedback  — feedback submitted for a discussion round
     discussion.closed    — discussion closed or reached consensus
@@ -384,3 +386,39 @@ def on_discussion_closed(discussion: dict, actor: str):
             continue
         if participant_id:
             notify_agent(participant_id, "discussion.closed", payload)
+
+
+# ---------------------------------------------------------------------------
+# Plan webhook helpers — call from plan handlers
+# ---------------------------------------------------------------------------
+
+def on_plan_created(plan: dict, actor: str, project_slug: str):
+    """Fire webhook when a plan is created (status=proposed)."""
+    payload = {
+        "plan_id": plan["id"],
+        "description": plan.get("description", "")[:200],
+        "steps_count": len(plan.get("steps", [])),
+        "mission_id": plan.get("mission_id"),
+        "project": project_slug,
+        "created_by": actor,
+    }
+    # Notify plan assignee (the agent who should review/approve)
+    if plan.get("assignee"):
+        notify_agent(plan["assignee"], "plan.created", payload)
+
+
+def on_plan_status_changed(plan: dict, old_status: str, new_status: str,
+                            project_slug: str):
+    """Fire webhook when a plan status changes (approve/reject/execute/complete)."""
+    payload = {
+        "plan_id": plan["id"],
+        "old_status": old_status,
+        "new_status": new_status,
+        "description": plan.get("description", "")[:200],
+        "steps_count": len(plan.get("steps", [])),
+        "mission_id": plan.get("mission_id"),
+        "project": project_slug,
+    }
+    # Notify plan assignee (creator/executor)
+    if plan.get("assignee"):
+        notify_agent(plan["assignee"], "plan.status_changed", payload)
