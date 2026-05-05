@@ -28,6 +28,8 @@ VALID_TASK_TYPES = frozenset({
     "campaign", "outreach", "analytics",
     # Operations & Planning
     "planning", "operations", "research", "meeting",
+    # Hierarchy (v0.7)
+    "mission", "slice",
 })
 
 MAX_TYPE_LENGTH = 30
