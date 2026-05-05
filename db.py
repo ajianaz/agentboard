@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -566,6 +566,10 @@ CREATE INDEX IF NOT EXISTS idx_plans_created ON plans(created_at DESC);
     """,
         13: """-- Schema v13: step_results column for step-level workflow gates
 ALTER TABLE plans ADD COLUMN step_results TEXT DEFAULT '[]';
+    """,
+        14: """-- Schema v14: git_branch column for branch-per-task tracking
+ALTER TABLE tasks ADD COLUMN git_branch TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_tasks_git_branch ON tasks(git_branch);
     """,
     }
     for ver in range(from_ver + 1, to_ver + 1):

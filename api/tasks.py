@@ -261,6 +261,7 @@ def create_task(params, query, body, headers):
     tags = data.get("tags") or []
     due_date = validate_text(data.get("due_date"), 20, "due_date") or None
     parent_id = validate_text(data.get("parent_id"), 20, "parent_id") or None
+    git_branch = validate_text(data.get("git_branch"), 200, "git_branch") or ""
 
     # Validate parent_id exists AND belongs to same project
     if parent_id:
@@ -295,13 +296,13 @@ def create_task(params, query, body, headers):
     conn.execute(
         """INSERT INTO tasks
            (id, project_id, parent_id, title, description, status, type, priority, assignee,
-            tags, position, due_date, started_at, completed_at, metadata, created_by, depth)
+            tags, position, due_date, started_at, completed_at, metadata, created_by, depth, git_branch)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                    (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ? AND status = ?),
-                   ?, ?, ?, ?, ?, ?)""",
+                   ?, ?, ?, ?, ?, ?, ?)""",
         (task_id, project_id, parent_id, title, description, status, task_type, priority, assignee,
          json.dumps(tags), project_id, status, due_date, started_at, completed_at,
-         json.dumps({}), created_by, depth),
+         json.dumps({}), created_by, depth, git_branch),
     )
 
     # Log HITL activity for creation
@@ -457,6 +458,10 @@ def update_task(params, query, body, headers):
     # Metadata
     if "metadata" in data and data["metadata"] is not None:
         updates["metadata"] = json.dumps(data["metadata"])
+
+    # Git branch
+    if "git_branch" in data:
+        updates["git_branch"] = validate_text(data["git_branch"], 200, "git_branch") or ""
 
     # Build and execute UPDATE
     if not updates:
@@ -628,6 +633,12 @@ def list_cross_project_tasks(params, query, body, headers):
     if type_filter:
         conditions.append("t.type = ?")
         sql_params.append(type_filter)
+
+    # Git branch filter
+    branch_filter = _get_first(query.get("branch"))
+    if branch_filter:
+        conditions.append("t.git_branch = ?")
+        sql_params.append(branch_filter)
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
