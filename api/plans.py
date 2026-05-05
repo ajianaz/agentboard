@@ -89,6 +89,32 @@ def _can_transition(from_status: str, to_status: str) -> bool:
     return to_status in allowed
 
 
+def _validate_plan_for_approval(plan: dict) -> list[str]:
+    """Validate a plan before it can be approved.
+
+    Returns a list of validation warnings (empty = plan is valid).
+    Non-blocking: warns but does not prevent approval.
+    """
+    issues = []
+    if not plan.get("description", "").strip():
+        issues.append("Plan has no description")
+    steps = plan.get("steps", [])
+    if isinstance(steps, str):
+        try:
+            steps = json.loads(steps)
+        except (json.JSONDecodeError, ValueError):
+            steps = []
+    if not steps:
+        issues.append("Plan has no steps defined")
+    else:
+        for i, step in enumerate(steps, 1):
+            if isinstance(step, dict) and not step.get("title", "").strip():
+                issues.append(f"Step {i} has no title")
+    if not plan.get("assignee", "").strip():
+        issues.append("Plan has no assignee")
+    return issues
+
+
 def _resolve_project_slug(conn, project_id: str) -> str | None:
     """Resolve a project ID to its slug."""
     row = conn.execute("SELECT slug FROM projects WHERE id = ?", (project_id,)).fetchone()
@@ -486,7 +512,16 @@ def _status_transition(plan_id: str, target_status: str, actor: str, body: bytes
 
     conn.commit()
     conn.close()
-    return 200, {"plan": updated}
+
+    # Plan completeness warnings (non-blocking)
+    warnings = []
+    if target_status == "approved":
+        warnings = _validate_plan_for_approval(updated)
+
+    resp = {"plan": updated}
+    if warnings:
+        resp["warnings"] = warnings
+    return 200, resp
 
 
 @router.post("/api/plans/{id}/approve")
