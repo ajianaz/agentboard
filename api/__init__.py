@@ -54,9 +54,10 @@ class Router:
                 try:
                     return handler(params, query, body, headers)
                 except json.JSONDecodeError as e:
-                    return 400, {"error": "Invalid JSON in request body", "code": "INVALID_JSON", "detail": str(e)}
+                    return 400, {"error": "Invalid JSON in request body", "code": "INVALID_JSON"}
                 except (ValueError, KeyError, TypeError, sqlite3.OperationalError) as e:
-                    return 400, {"error": "Invalid request", "code": "BAD_REQUEST", "detail": str(e)}
+                    import traceback as _tb; _tb.print_exc(file=sys.stderr)
+                    return 400, {"error": "Invalid request", "code": "BAD_REQUEST"}
                 except Exception as e:
                     import traceback as _tb; _tb.print_exc(file=sys.stderr)
                     return 500, {"error": "Internal server error", "code": "INTERNAL_ERROR", "detail": str(type(e).__name__)}
