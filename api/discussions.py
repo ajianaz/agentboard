@@ -511,7 +511,8 @@ def ingest_feedback_file(params, query, body, headers):
         result = watcher.ingest_file(file_path)
         return 200 if result["status"] == "ok" else 500, result
     except Exception as e:
-        return 500, {"error": str(e)}
+        import traceback as _tb; _tb.print_exc(file=sys.stderr)
+        return 500, {"error": "Failed to ingest feedback file", "code": "INTERNAL_ERROR"}
 
 
 @router.get("/api/discussions/watcher/status")
@@ -534,4 +535,5 @@ def feedback_watcher_status(params, query, body, headers):
         )
         return 200, watcher.status()
     except Exception as e:
-        return 500, {"error": str(e)}
+        import traceback as _tb; _tb.print_exc(file=sys.stderr)
+        return 500, {"error": "Failed to get watcher status", "code": "INTERNAL_ERROR"}
