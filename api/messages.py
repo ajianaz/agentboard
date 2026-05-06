@@ -70,42 +70,52 @@ def send_message(params, query, body, headers):
 
 @router.get("/api/messages")
 def list_messages(params, query, body, headers):
-    """List messages for an agent. Defaults to unread-only; ?all=1 for all."""
+    """List messages for an agent. Defaults to unread-only; ?all=1 for all.
+    Without agent param or x-actor header, shows all messages (public/admin view)."""
     agent = query.get("agent", [""])[0] if query.get("agent") else headers.get("x-actor", "")
-    if not agent:
-        return 400, {"error": "agent query param or x-actor header required", "code": "VALIDATION_ERROR"}
-
     show_all = query.get("all", [""])[0] == "1"
 
     conn = get_db()
 
-    if show_all:
-        rows = conn.execute(
-            """SELECT m.* FROM messages m
-               WHERE m.to_agent = '' OR m.to_agent = ? OR m.from_agent = ?
-               ORDER BY m.is_read ASC, m.created_at DESC
-               LIMIT 100""",
-            (agent, agent),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """SELECT m.* FROM messages m
-               WHERE (m.to_agent = '' OR m.to_agent = ?)
-               AND m.is_read = 0
-               ORDER BY m.created_at DESC
-               LIMIT 50""",
+    if agent:
+        if show_all:
+            rows = conn.execute(
+                """SELECT m.* FROM messages m
+                   WHERE m.to_agent = '' OR m.to_agent = ? OR m.from_agent = ?
+                   ORDER BY m.is_read ASC, m.created_at DESC
+                   LIMIT 100""",
+                (agent, agent),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT m.* FROM messages m
+                   WHERE (m.to_agent = '' OR m.to_agent = ?)
+                   AND m.is_read = 0
+                   ORDER BY m.created_at DESC
+                   LIMIT 50""",
+                (agent,),
+            ).fetchall()
+
+        # Count unread
+        unread_row = conn.execute(
+            """SELECT COUNT(*) as cnt FROM messages
+               WHERE (to_agent = '' OR to_agent = ?) AND is_read = 0""",
             (agent,),
+        ).fetchone()
+        unread_count = unread_row["cnt"] if unread_row else 0
+    else:
+        # Public view — show all messages
+        rows = conn.execute(
+            """SELECT m.* FROM messages m
+               ORDER BY m.created_at DESC
+               LIMIT 100"""
         ).fetchall()
+        unread_row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM messages WHERE is_read = 0"
+        ).fetchone()
+        unread_count = unread_row["cnt"] if unread_row else 0
 
     messages = [dict(r) for r in rows]
-
-    # Count unread
-    unread_row = conn.execute(
-        """SELECT COUNT(*) as cnt FROM messages
-           WHERE (to_agent = '' OR to_agent = ?) AND is_read = 0""",
-        (agent,),
-    ).fetchone()
-    unread_count = unread_row["cnt"] if unread_row else 0
 
     conn.close()
     return 200, {"messages": messages, "unread_count": unread_count}

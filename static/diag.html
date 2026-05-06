@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html><head><title>AgentBoard Diagnostics</title>
+<style>
+body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+.ok { color: #4ade80; }
+.fail { color: #f87171; }
+.info { color: #60a5fa; }
+pre { background: #0f0f23; padding: 12px; border-radius: 8px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+td, th { padding: 6px 12px; border: 1px solid #333; text-align: left; }
+th { background: #1e1e3e; }
+</style></head><body>
+<h1>🩺 AgentBoard Diagnostics</h1>
+<div id="results">Running tests...</div>
+<script>
+(async () => {
+  const div = document.getElementById('results');
+  const results = [];
+  
+  const tests = [
+    { name: 'GET /api/health', url: '/api/health' },
+    { name: 'GET /api/stats/public', url: '/api/stats/public' },
+    { name: 'GET /api/projects', url: '/api/projects' },
+    { name: 'GET /api/tasks', url: '/api/tasks' },
+    { name: 'GET /api/discussions', url: '/api/discussions' },
+  ];
+  
+  let html = '<table><tr><th>Test</th><th>Status</th><th>Time</th><th>Details</th></tr>';
+  
+  for (const t of tests) {
+    const start = performance.now();
+    try {
+      const r = await fetch(t.url);
+      const elapsed = Math.round(performance.now() - start);
+      const data = await r.json();
+      const ok = r.ok;
+      const cls = ok ? 'ok' : 'fail';
+      const detail = ok 
+        ? (data.projects ? data.projects.length + ' projects' : data.tasks ? data.tasks.length + ' tasks' : JSON.stringify(data).slice(0, 80))
+        : data.error || r.statusText;
+      html += `<tr><td>${t.name}</td><td class="${cls}">${r.status} ${r.statusText}</td><td>${elapsed}ms</td><td>${detail}</td></tr>`;
+    } catch(e) {
+      html += `<tr><td>${t.name}</td><td class="fail">ERROR</td><td>-</td><td>${e.message}</td></tr>`;
+    }
+  }
+  
+  html += '</table>';
+  
+  // Auth check
+  const key = localStorage.getItem('ab_key');
+  html += `<p class="info">Auth: ${key ? '🔑 Key set (' + key.slice(0, 8) + '...)' : '🔓 No key'}</p>`;
+  html += `<p class="info">URL: ${location.href}</p>`;
+  
+  div.innerHTML = html;
+})();
+</script></body></html>

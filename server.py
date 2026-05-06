@@ -16,7 +16,7 @@ import os
 import queue
 import sys
 import traceback
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
@@ -395,7 +395,7 @@ def main():
     print()
     print("Server started. Press Ctrl+C to stop.")
 
-    server = HTTPServer((host, port), RequestHandler)
+    server = ThreadingHTTPServer((host, port), RequestHandler)
 
     # Auto-reload: watch .py files and restart process on change.
     # Static files (HTML/CSS/JS) are already served from disk on each request,
