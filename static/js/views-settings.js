@@ -74,9 +74,9 @@ async function renderAgents(app){
     const el=document.getElementById('wl-'+a.id);
     if(!el||!wl)return;
     const parts=[];
-    if(wl.total_tasks)parts.push(`Total: ${wl.total_tasks}`);
-    if(wl.done_tasks)parts.push(`Done: ${wl.done_tasks}`);
-    if(wl.active_projects?.length)parts.push(`Projects: ${wl.active_projects.join(', ')}`);
+    if(wl.total)parts.push(`Total: ${wl.total}`);
+    if(wl.completed)parts.push(`Done: ${wl.completed}`);
+    if(wl.active_projects?.length)parts.push(`Projects: ${wl.active_projects.map(p=>p.name||p).join(', ')}`);
     el.innerHTML=parts.map(p=>`<span>${p}</span>`).join('');
   });
 }
