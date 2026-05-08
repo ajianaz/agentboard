@@ -3,6 +3,34 @@
 All notable changes to AgentBoard are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+## [0.7.0] - 2026-05-08
+
+### Added
+- **Plans System** — AI-assisted planning with step-by-step validation, approve/reject/execute workflow (12 endpoints)
+- **Messages Inbox** — Inter-agent messaging with read tracking, mark-all-read, per-message delete (5 endpoints)
+- **SSE Real-time** — Server-Sent Events endpoint for live board updates
+- **Modular Frontend** — 12 modular JS files (was 1 monolith), lazy-loaded views
+- **E2E Test Suite** — 33 integration tests spawning real server subprocess with temp database
+- **FTS5 Search Sanitization** — Strip bare numbers from queries to prevent column-reference injection
+- **ThreadingHTTPServer** — Multi-threaded request handling (was single-threaded)
+- **Validation Module** — Shared input validation with `validate_slug`, `validate_required_fields`, `validate_json_fields`
+- **Multi-key Auth** — API key rotation support, hashed key storage
+
+### Changed
+- **Schema v14** — 14 tables, 48 indexes, content-synced FTS5 tables for tasks and pages
+- **Frontend** — Added Plans view, Messages view, SSE event bus, agent workload fields in Settings
+- **Router** — Lazy API module loading, improved error handling with full tracebacks
+- **Config** — `public_get_routes` in `agentboard.toml` for fine-grained public access control
+- **Docker** — Updated to Python 3.13, `ThreadingHTTPServer` in Dockerfile
+- **CI** — All 184 tests green (151 unit + 33 E2E)
+
+### Fixed
+- **Migration v7 bug** — Duplicate `ALTER TABLE` for `visibility` column silently failed, skipping pages table rebuild. Removed redundant ALTER, moved indexes to `_create_late_indexes()`
+- **FTS5 MATCH injection** — Bare numbers in search queries (e.g., `search-2`) were interpreted as column references by FTS5 parser. Added `_sanitize_fts_query()` to strip standalone digits
+- **Project view hang** — Single-threaded server blocked on long requests. Fixed with `ThreadingHTTPServer`
+- **Dev/Prod sync** — Merged 3 patches from agentboard-dev into develop branch
+
 ## [0.6.0] - 2026-05-05
 
 ### Added

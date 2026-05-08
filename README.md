@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-v0.6.0-yellow.svg)](https://github.com/ajianaz/agentboard/releases)
+[![Version](https://img.shields.io/badge/version-v0.7.0-yellow.svg)](https://github.com/ajianaz/agentboard/releases)
 
 ## What is it?
 
@@ -14,6 +14,7 @@ AgentBoard is a **project board that AI agents can actually use**. It's a single
 - 🤖 **Agent-native** — AI agents read `AGENTS.md` and immediately know the API
 - ✅ **HITL (Human-In-The-Loop)** — Approve or reject agent proposals via dashboard
 - 📝 **Outline-style docs** — Deeply nested document tree per project
+- 📋 **Plans** — AI-assisted plans with step-by-step validation, approve/reject/execute workflow
 - 📊 **Agent workload dashboard** — See who's working on what, across projects
 - 🔍 **Full-text search** — FTS5-powered search across all tasks and pages
 - 📦 **Export / Import** — Backup and restore projects as JSON
@@ -22,6 +23,8 @@ AgentBoard is a **project board that AI agents can actually use**. It's a single
 - 📊 **Analytics dashboard** — Per-agent KPI cards with success rate, throughput, and activity metrics
 - 💬 **Discussions** — Multi-round structured review system for proposals and decisions
 - 📋 **Activity feed** — Filterable activity log with stats and trends
+- 🔔 **SSE real-time** — Live updates via Server-Sent Events
+- 💬 **Messages inbox** — Inter-agent messaging with read tracking
 
 ## Quick Start
 
@@ -82,11 +85,14 @@ Open **http://localhost:8765** — done.
 |-----|-------------|
 | `latest` | Stable release (main branch) |
 | `develop` | Bleeding edge (develop branch) |
-| `v0.6.0` | Latest (pre-release) |
+| `v0.7.0` | Latest (pre-release) — E2E tests, FTS5 fix, modular frontend |
+| `v0.6.0` | Feedback watcher, auto-tracking, CLI, messages inbox |
 | `v0.5.0` | Standalone webhooks, docs hub, page visibility |
 | `v0.4.0` | Standalone tools, agent sync, public readiness |
 | `v0.3.0` | Analytics engine, discussion system, CI |
-| `v1.0.0` | Initial release |
+| `v0.2.0` | Multi-project kanban, agent profiles, FTS5 |
+| `v0.1.0` | Basic task CRUD |
+| `v0.0.1` | Initial release |
 
 ### Option C: Docker (build from source)
 
@@ -271,6 +277,37 @@ All endpoints return JSON. Base URL: `http://localhost:8765/api`
 | POST | `/api/discussions/{id}/feedback` | Add feedback to discussion |
 | GET | `/api/discussions/{id}/summary` | Discussion summary |
 
+### Plans (12 endpoints)
+
+AI-assisted planning with step-by-step validation, approve/reject/execute workflow.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/plans` | List all plans (global) |
+| GET | `/api/projects/{slug}/plans` | Plans in project |
+| GET | `/api/plans/{id}` | Plan detail |
+| POST | `/api/projects/{slug}/plans` | Create plan |
+| PATCH | `/api/plans/{id}` | Update plan |
+| DELETE | `/api/plans/{id}` | Delete plan |
+| POST | `/api/plans/{id}/approve` | Approve plan (locks steps) |
+| POST | `/api/plans/{id}/reject` | Reject plan |
+| POST | `/api/plans/{id}/execute` | Start execution |
+| POST | `/api/plans/{id}/complete` | Mark plan complete |
+| POST | `/api/plans/{id}/step/{index}` | Update step status |
+| GET | `/api/plans/{id}/progress` | Plan progress |
+
+### Messages (5 endpoints)
+
+Inter-agent messaging inbox with read tracking.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/messages` | List messages |
+| POST | `/api/messages` | Send message |
+| PATCH | `/api/messages/{id}/read` | Mark message as read |
+| PATCH | `/api/messages/read-all` | Mark all messages as read |
+| DELETE | `/api/messages/{id}` | Delete message |
+
 ### Search (1 endpoint)
 
 | Method | Path | Description |
@@ -352,7 +389,7 @@ writer-agent = "content"
 |--------|------|-------------|
 | GET | `/api/stats/public` | Anonymized board statistics |
 
-**Total: 55 endpoints** (including `/api/health`)
+**Total: 72 endpoints** (including `/api/health`)
 
 ## CLI Tool
 
@@ -467,36 +504,38 @@ Each project can have its own status workflow:
 ## Architecture
 
 ```
-┌─────────────────────────────────────┐
-│  Browser (index.html SPA)           │
-│  Sidebar + Kanban + Docs + Analytics │
-└──────────────┬──────────────────────┘
-               │ fetch() → JSON API
+┌─────────────────────────────────────────────────────────┐
+│  Browser (index.html SPA + static/)                     │
+│  style.css + 12 modular JS files (js/*.js)              │
+│  Sidebar + Kanban + Docs + Plans + Analytics + Settings  │
+└──────────────┬──────────────────────────────────────────┘
+               │ fetch() → JSON API + SSE
                ▼
-┌─────────────────────────────────────┐
-│  server.py (Python stdlib)          │
-│  Routing + Auth + API handlers      │
-│  + HMAC webhook receiver            │
-└──────────────┬──────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  server.py (ThreadingHTTPServer, Python stdlib)         │
+│  Routing + Auth + 16 API modules + SSE endpoint        │
+│  + HMAC webhook receiver                                │
+└──────────────┬──────────────────────────────────────────┘
                │ SQLite
                ▼
-┌─────────────────────────────────────┐
-│  agentboard.db                      │
-│  projects, tasks, pages, agents     │
-│  activity, kpi_daily, kpi_weekly    │
-│  discussions, discussion_feedback    │
-│  webhook_events                     │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  agentboard.db                                          │
+│  projects, tasks, pages, plans, agents, messages       │
+│  activity, kpi_daily, kpi_weekly                       │
+│  discussions, discussion_feedback, api_keys             │
+│  webhook_events                                        │
+└─────────────────────────────────────────────────────────┘
 ```
 
 **Tech stack:**
 
 | Component | Technology |
 |-----------|------------|
-| Backend | Python 3.11+ stdlib (`http.server`) |
-| Database | SQLite 3.46+ (WAL, FTS5, JSON1) |
-| Frontend | Vanilla HTML/CSS/JS (no framework) |
-| Auth | Bearer token (API key) |
+| Backend | Python 3.11+ stdlib (`http.server`, `ThreadingHTTPServer`) |
+| Database | SQLite 3.46+ (WAL, FTS5, JSON1) — schema v14 |
+| Frontend | Vanilla HTML/CSS/JS (no framework), 12 modular JS files |
+| Auth | Bearer token (API key) — multi-key with rotation |
+| Real-time | Server-Sent Events (SSE) |
 | Dependencies | **None** — zero external packages |
 
 ## Configuration (Optional)
@@ -571,6 +610,10 @@ python -m pytest tests/ -v
 # Run with custom port
 AGENTBOARD_PORT=9000 python server.py
 ```
+
+**Test suite: 184 tests** (151 unit + security + 33 E2E integration tests)
+
+The E2E tests spawn a real server subprocess with temp database — testing full HTTP request/response cycles, auth flows, CRUD operations, and cross-resource interactions.
 
 ## Development (Side-by-Side with Production)
 

@@ -24,7 +24,7 @@ python server.py
 # Open http://localhost:8765
 ```
 
-First run creates `agentboard.db` with current schema (v7), imports legacy API key, starts KPI engine, and runs auto-cleanup.
+First run creates `agentboard.db` with current schema (v14), imports legacy API key, starts KPI engine, and runs auto-cleanup.
 
 **CLI flags** (optional, override everything):
 ```bash
@@ -52,7 +52,7 @@ curl -H "Authorization: Bearer $KEY" http://localhost:8765/api/stats
 | File | Purpose |
 |------|---------|
 | [`skills/agentboard/SKILL.md`](skills/agentboard/SKILL.md) | Hub — triggers, quick reference, rules |
-| [`skills/agentboard/references/api_reference.md`](skills/agentboard/references/api_reference.md) | All 55 endpoints documented |
+| [`skills/agentboard/references/api_reference.md`](skills/agentboard/references/api_reference.md) | All 72 endpoints documented |
 | [`skills/agentboard/references/code_examples.md`](skills/agentboard/references/code_examples.md) | Python & curl snippets |
 | [`skills/agentboard/references/workflows.md`](skills/agentboard/references/workflows.md) | HITL, reporting, backup workflows |
 | [`skills/agentboard/references/pitfalls.md`](skills/agentboard/references/pitfalls.md) | Gotchas and troubleshooting |
@@ -62,43 +62,46 @@ The skill is self-contained — no installation, no dependencies. Just read `SKI
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   index.html (SPA)                   │
-│         Vanilla JS, dark theme, responsive           │
-│  ┌─────────┬────────────────────────────────────┐  │
-│  │ Sidebar │  Main Content Area                  │  │
-│  │         │  ┌──────────┬──────────┬──────────┐ │  │
-│  Overview│  │  Board   │  Docs    │  Stats   │ │  │
-│  Project │  │  (kanban)│  (tree)  │  (chart) │ │  │
-│  List    │  └──────────┴──────────┴──────────┘ │  │
-│  Agents  │  ┌──────────┬──────────┬──────────┐ │  │
-│  Settings│  │Analytics │Discussions│Activity │ │  │
-│  └─────────┴──────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────┘
-         │ fetch() API calls (JSON)
+┌─────────────────────────────────────────────────────────────┐
+│                   index.html (SPA)                           │
+│         Vanilla JS (12 modules), dark theme, responsive      │
+│  ┌─────────┬──────────────────────────────────────────┐  │
+│  │ Sidebar │  Main Content Area                        │  │
+│  │         │  ┌──────────┬──────────┬──────────┐    │  │
+│  │ Overview│  │  Board   │  Docs    │  Plans   │    │  │
+│  │ Project │  │  (kanban)│  (tree)  │ (steps)  │    │  │
+│  │ List    │  └──────────┴──────────┴──────────┘    │  │
+│  │ Agents  │  ┌──────────┬──────────┬──────────┐    │  │
+│  │ Settings│  │Analytics │Messages  │Activity  │    │  │
+│  │         │  │(KPI)     │(inbox)   │(feed)    │    │  │
+│  │         │  └──────────┴──────────┴──────────┘    │  │
+│  └─────────┴──────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+         │ fetch() API calls (JSON) + SSE real-time
          ▼
-┌──────────────────────────────────────────────────────┐
-│              server.py (Python stdlib)                │
-│  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────────┐  │
-│  │ Router │ │  Auth  │ │  API   │ │  Static    │  │
-│  │        │ │ Module │ │Routes  │ │  Server    │  │
-│  └────────┘ └────────┘ └────────┘ └────────────┘  │
-│  ┌──────────────────────────────────────────────┐  │
-│  │  config.py — agentboard.toml loader (tomllib) │  │
-│  │  CLI args > env vars > TOML > defaults       │  │
-│  └──────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────┐  │
-│  │  kpi_engine.py — Background KPI computation    │  │
-│  │  activity_logger.py — Auto-logging middleware   │  │
-│  └──────────────────────────────────────────────┘  │
-│         │                                           │
-│         ▼                                           │
-│  ┌──────────────────────────────────────────────┐  │
-│  │            agentboard.db (SQLite WAL)         │  │
-│  │  projects │ tasks │ pages │ agents │ activity │ api_keys │
-│  │  kpi_daily │ kpi_weekly │ discussions │ discussion_feedback │
-│  └──────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│         server.py (ThreadingHTTPServer, Python stdlib)        │
+│  ┌────────┐ ┌────────┐ ┌──────────────┐ ┌─────────────┐  │
+│  │ Router │ │  Auth  │ │ 16 API       │ │  Static     │  │
+│  │(lazy)  │ │ Module │ │ modules      │ │  Server     │  │
+│  └────────┘ └────────┘ └──────────────┘ └─────────────┘  │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │  config.py — agentboard.toml loader (tomllib)        │  │
+│  │  CLI args > env vars > TOML > defaults               │  │
+│  └──────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │  kpi_engine.py — Background KPI computation           │  │
+│  │  activity_logger.py — Auto-logging middleware          │  │
+│  └──────────────────────────────────────────────────────┘  │
+│         │                                                   │
+│         ▼                                                   │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │            agentboard.db (SQLite WAL)                  │  │
+│  │  projects │ tasks │ pages │ plans │ agents │ messages  │  │
+│  │  activity │ kpi_daily │ kpi_weekly │ api_keys          │  │
+│  │  discussions │ discussion_feedback │ webhook_events    │  │
+│  └──────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## File Structure
@@ -107,35 +110,56 @@ The skill is self-contained — no installation, no dependencies. Just read `SKI
 agentboard/
 ├── server.py              # Entry point, HTTP server, routing
 ├── config.py              # Configuration loader (agentboard.toml, tomllib)
-├── db.py                  # SQLite schema v7, migrations, WAL mode, retention
-├── auth.py                # API key auth, session management
+├── db.py                  # SQLite schema v14, migrations, WAL mode, retention
+├── auth.py                # API key auth, multi-key management, session handling
 ├── kpi_engine.py          # Background KPI computation engine
 ├── activity_logger.py     # Auto-logging middleware for write operations
 ├── onboard.py             # First-run setup + sample data generation
 ├── api/
-│   ├── __init__.py
+│   ├── __init__.py        # Router class, lazy module loading
 │   ├── projects.py        # Project CRUD
 │   ├── tasks.py           # Task CRUD + cross-project queries
 │   ├── pages.py           # Document tree CRUD
-│   ├── agents.py          # Agent management
+│   ├── plans.py           # AI-assisted plans (12 endpoints)
+│   ├── agents.py          # Agent management + workload
+│   ├── messages.py        # Inter-agent messaging inbox (5 endpoints)
 │   ├── comments.py        # Task/page comments
 │   ├── activity.py        # Activity log (enhanced with filters)
 │   ├── analytics.py       # KPI metrics, trends, export, recompute
 │   ├── discussions.py     # Multi-round discussion/review system
-│   ├── search.py          # FTS5 search
+│   ├── search.py          # FTS5 search (with query sanitization)
 │   ├── export.py          # Export/import endpoints
-│   └── auth_keys.py        # API key CRUD & rotation
+│   ├── auth_keys.py       # API key CRUD & rotation
+│   ├── webhooks.py        # HMAC-signed webhook endpoints
+│   ├── feedback.py        # Agent file watcher + auto-tracking
+│   └── validation.py      # Shared input validation utilities
 ├── static/
-│   └── index.html         # Single-page application (all UI)
+│   ├── index.html         # Single-page application (all UI)
+│   ├── style.css          # Global styles (dark theme)
+│   └── js/                # Modular frontend (12 files)
+│       ├── base.js        # Core utilities, API client, SSE bus
+│       ├── router.js      # SPA client-side router
+│       ├── init.js        # App bootstrap
+│       ├── sidebar.js     # Sidebar navigation
+│       ├── views-board.js # Kanban board view
+│       ├── views-docs.js  # Document tree view
+│       ├── views-overview.js # Dashboard/overview
+│       ├── views-settings.js # Agent profiles, project settings
+│       ├── task-panel.js  # Task detail/edit panel
+│       ├── plans.js       # Plans view (step-by-step)
+│       ├── discussions.js # Discussion threads
+│       ├── activity.js    # Activity feed
+│       └── sse.js         # Server-Sent Events client
 ├── tests/
 │   ├── conftest.py        # Shared pytest fixtures (db_conn, api_key)
 │   ├── test_db.py         # Schema, tables, FTS5, gen_id, slugify (7 tests)
-│   └── test_auth.py       # Key gen, hashing, validation, header parsing (10 tests)
+│   ├── test_auth.py       # Key gen, hashing, validation, header parsing (10 tests)
+│   └── test_e2e.py        # Full integration tests (33 tests, subprocess server)
 ├── skills/
 │   └── agentboard/       # Agent integration skill
 │       ├── SKILL.md      # Skill hub — read this first
 │       └── references/
-│           ├── api_reference.md    # All 40+ API endpoints
+│           ├── api_reference.md    # All 72 API endpoints
 │           ├── code_examples.md    # Python & curl snippets
 │           ├── workflows.md        # Common agent workflows (incl. discussion)
 │           └── pitfalls.md         # Gotchas & troubleshooting
@@ -914,6 +938,67 @@ disc.write_synthesis("# Synthesis\n\n...")
 disc.close()
 ```
 
+### Plans
+
+AI-assisted planning with step-by-step validation, approve/reject/execute workflow.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/plans` | List all plans (global) |
+| GET | `/api/projects/{slug}/plans` | Plans in project |
+| GET | `/api/plans/{id}` | Plan detail |
+| POST | `/api/projects/{slug}/plans` | Create plan |
+| PATCH | `/api/plans/{id}` | Update plan |
+| DELETE | `/api/plans/{id}` | Delete plan |
+| POST | `/api/plans/{id}/approve` | Approve plan (locks steps) |
+| POST | `/api/plans/{id}/reject` | Reject plan |
+| POST | `/api/plans/{id}/execute` | Start execution |
+| POST | `/api/plans/{id}/complete` | Mark plan complete |
+| POST | `/api/plans/{id}/step/{index}` | Update step status |
+| GET | `/api/plans/{id}/progress` | Plan progress |
+
+**Create plan:**
+```json
+POST /api/projects/{slug}/plans
+{
+  "title": "Migrate Auth to JWT",
+  "description": "Replace session-based auth with JWT tokens",
+  "steps": [
+    {"title": "Research JWT libraries", "status": "pending"},
+    {"title": "Implement token generation", "status": "pending"},
+    {"title": "Add refresh token rotation", "status": "pending"},
+    {"title": "Update middleware", "status": "pending"}
+  ],
+  "assignee": "cto"
+}
+```
+
+**Plan lifecycle:** `draft → approved → executing → completed` (or `rejected`)
+
+### Messages
+
+Inter-agent messaging inbox with read tracking.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/messages` | List messages (filter: `?unread=true`, `?from=agent-id`) |
+| POST | `/api/messages` | Send message |
+| PATCH | `/api/messages/{id}/read` | Mark message as read |
+| PATCH | `/api/messages/read-all` | Mark all messages as read |
+| DELETE | `/api/messages/{id}` | Delete message |
+
+**Send message:**
+```json
+POST /api/messages
+{
+  "from_agent": "cto",
+  "to_agent": "zeko",
+  "subject": "Auth Review Needed",
+  "content": "Please review the JWT migration plan on AgentBoard.",
+  "message_type": "task_request"
+}
+```
+
 ### Auth Keys (API Key Management)
 
 All `/api/auth/*` routes **always require authentication** (even when `public_read=true`).
@@ -1158,13 +1243,19 @@ AGENTBOARD_PORT=8766 python server.py
 ### Testing
 
 ```bash
-# Run tests
+# Run all tests (151 unit + 33 E2E = 184 total)
 python -m pytest tests/ -v
 
-# Run single test file
-python -m pytest tests/test_db.py -v
-python -m pytest tests/test_auth.py -v
+# Run unit tests only
+python -m pytest tests/test_db.py tests/test_auth.py -v
+
+# Run E2E tests only (spawns real server subprocess)
+python -m pytest tests/test_e2e.py -v
 ```
+
+**Test architecture:**
+- **Unit tests** (`test_db.py`, `test_auth.py`) — use in-memory SQLite (`:memory:`), test schema, migrations, auth logic
+- **E2E tests** (`test_e2e.py`) — spawn a real server subprocess with temp database + random port, test full HTTP request/response cycles including auth, CRUD, cross-resource operations, and search
 
 ## Conventions
 
@@ -1189,14 +1280,11 @@ python -m pytest tests/test_auth.py -v
 | `MAINTENANCE` | 503 | Server in maintenance mode (writes blocked) |
 | `LAST_KEY` | 409 | Cannot delete the last active API key |
 
-## Testing
+## Testing (duplicate — see Development section above)
 
 ```bash
-# All tests use in-memory SQLite (:memory:)
-python -m pytest tests/ -v
-
-# With coverage
-python -m pytest tests/ --cov=. --cov-report=term-missing
+python -m pytest tests/ -v          # 184 tests (151 unit + 33 E2E)
+python -m pytest tests/test_e2e.py -v  # E2E only
 ```
 
 ## Agent Integration Guide
