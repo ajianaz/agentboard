@@ -20,7 +20,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 
 # Local imports
 from config import get_config

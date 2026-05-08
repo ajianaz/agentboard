@@ -73,6 +73,7 @@ def list_messages(params, query, body, headers):
     """List messages for an agent. Defaults to unread-only; ?all=1 for all.
     Without agent param or x-actor header, shows all messages (public/admin view)."""
     agent = query.get("agent", [""])[0] if query.get("agent") else headers.get("x-actor", "")
+
     show_all = query.get("all", [""])[0] == "1"
 
     conn = get_db()

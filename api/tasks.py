@@ -571,6 +571,10 @@ def delete_task(params, query, body, headers):
     project_id = row["project_id"]
     task_title = row["title"]
 
+    # Resolve project slug for SSE publish
+    proj_row = conn.execute("SELECT slug FROM projects WHERE id = ?", (project_id,)).fetchone()
+    project_slug = proj_row["slug"] if proj_row else ""
+
     # Delete comments associated with this task
     conn.execute("DELETE FROM comments WHERE target_type = 'task' AND target_id = ?", (task_id,))
 
@@ -583,7 +587,7 @@ def delete_task(params, query, body, headers):
     conn.commit()
     conn.close()
 
-    publish("task_deleted", {"id": task_id, "project": slug})
+    publish("task_deleted", {"id": task_id, "project": project_slug})
 
     return 200, {"deleted": True, "id": task_id}
 
