@@ -50,7 +50,6 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 CREATE INDEX IF NOT EXISTS idx_projects_position ON projects(position);
 CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(is_archived);
-CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
 
 -- Tasks
 CREATE TABLE IF NOT EXISTS tasks (
@@ -76,7 +75,6 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
-CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
 
 -- Pages (Outline-style documents, recursive CTE-compatible with parent_id self-reference)
 -- project_id nullable for standalone pages (no project required)
@@ -98,7 +96,6 @@ CREATE TABLE IF NOT EXISTS pages (
 );
 CREATE INDEX IF NOT EXISTS idx_pages_project ON pages(project_id);
 CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_id);
-CREATE INDEX IF NOT EXISTS idx_pages_visibility ON pages(visibility);
 
 -- Agents
 CREATE TABLE IF NOT EXISTS agents (
@@ -296,6 +293,30 @@ def get_db(db_path=None) -> sqlite3.Connection:
     return conn
 
 
+def _create_late_indexes(conn: sqlite3.Connection):
+    """Create indexes on columns added by ALTER TABLE migrations.
+
+    These indexes can't live in SCHEMA_SQL because SCHEMA_SQL runs via
+    executescript() BEFORE migrations, and the columns only exist after
+    migration ALTER TABLE statements run.
+
+    Each index creation is wrapped in a try/except so that a missing column
+    on an intermediate schema version is a safe no-op (the corresponding
+    migration will add the column and its own index if needed).
+    """
+    _late_indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility)",
+        "CREATE INDEX IF NOT EXISTS idx_pages_visibility ON pages(visibility)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)",
+    ]
+    for sql in _late_indexes:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass  # Column doesn't exist yet — migration will handle it
+
+
 def _ensure_schema(conn: sqlite3.Connection):
     """Create tables if they don't exist, run migrations if needed."""
     conn.executescript(SCHEMA_SQL)
@@ -304,6 +325,10 @@ def _ensure_schema(conn: sqlite3.Connection):
     current = row['v'] if row['v'] else 0
     if current < SCHEMA_VERSION:
         _run_migrations(conn, current, SCHEMA_VERSION)
+    # Post-migration: create indexes on columns added by ALTER TABLE migrations.
+    # These can't be in SCHEMA_SQL because CREATE TABLE IF NOT EXISTS skips
+    # existing tables, but the columns only exist after migrations run.
+    _create_late_indexes(conn)
 
 
 def _run_migrations(conn: sqlite3.Connection, from_ver: int, to_ver: int):
@@ -417,11 +442,9 @@ ALTER TABLE discussions ADD COLUMN leader TEXT DEFAULT '';""",
 -- then recreate them AFTER. FTS5 content=pages creates a hard reference
 -- that blocks DROP TABLE pages.
 
--- Step 1: Add visibility to projects and discussions
+-- Step 1: Add visibility to projects (discussions already has it from v5)
 ALTER TABLE projects ADD COLUMN visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden'));
-ALTER TABLE discussions ADD COLUMN visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden'));
 CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
-CREATE INDEX IF NOT EXISTS idx_discussions_visibility ON discussions(visibility);
 
 -- Step 2: Drop FTS5 virtual table and triggers that reference pages
 DROP TRIGGER IF EXISTS pages_ai;
