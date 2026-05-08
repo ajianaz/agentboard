@@ -110,7 +110,7 @@ release(scope): description   # Release merge (develop → main)
 feat(webhooks): add file watcher for feedback ingestion
 fix(auth): validate API key against server before saving
 docs(readme): update Docker tag table
-release: v1.5.3 — auth validation and dashboard polish
+release: v0.5.3 — auth validation and dashboard polish
 ```
 
 ## Code Style

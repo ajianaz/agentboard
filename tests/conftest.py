@@ -20,13 +20,18 @@ if sys_path not in __import__("sys").path:
 @pytest.fixture
 def db_conn():
     """Provide a fresh in-memory SQLite connection with full schema."""
-    from db import FULL_SCHEMA_SQL
+    from db import FULL_SCHEMA_SQL, SCHEMA_VERSION, _run_migrations
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(FULL_SCHEMA_SQL)
+    # Run migrations to get latest schema (plans table, step_results, etc.)
+    version_row = conn.execute("PRAGMA user_version").fetchone()
+    current_ver = version_row[0] if version_row else 0
+    if current_ver < SCHEMA_VERSION:
+        _run_migrations(conn, current_ver, SCHEMA_VERSION)
     yield conn
     conn.close()
 

@@ -1,4 +1,4 @@
-"""AgentBoard — Task CRUD, HITL transitions, and cross-project queries.
+"""AgentBoard — Task CRUD, HITL transitions, cross-project queries, and hierarchy.
 
 Endpoints:
     GET    /api/projects/{slug}/tasks           — list tasks in project
@@ -7,16 +7,20 @@ Endpoints:
     DELETE /api/tasks/{id}                      — delete task
     GET    /api/tasks?project=all               — cross-project tasks
     GET    /api/tasks/{id}                      — single task with comments
+    GET    /api/tasks/{id}/children             — subtasks of a parent task
+    GET    /api/projects/{slug}/tasks/tree      — hierarchical tree view
 """
 
 import json
 from db import get_db, gen_id
 from api import router
 from api.validation import (
-    validate_enum, validate_title, validate_text,
-    VALID_STATUSES, VALID_PRIORITIES, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH,
+    validate_enum, validate_title, validate_text, validate_task_type,
+    VALID_STATUSES, VALID_PRIORITIES,
+    MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH,
 )
 from webhook import on_task_created, on_task_assigned, on_task_status_changed, on_task_comment
+from event_bus import publish
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +67,41 @@ def _get_first(query_list, default=""):
     if query_list and len(query_list) > 0:
         return query_list[0]
     return default
+
+
+def _compute_depth(conn, parent_id: str | None) -> int:
+    """Compute depth for a task based on its parent's depth.
+
+    Root tasks (no parent) get depth=0.
+    Children get parent.depth + 1.
+    """
+    if not parent_id:
+        return 0
+    parent = conn.execute("SELECT depth FROM tasks WHERE id = ?", (parent_id,)).fetchone()
+    if not parent:
+        return 0
+    return (parent["depth"] or 0) + 1
+
+
+def _cascade_depth(conn, task_id: str, new_depth: int):
+    """Recursively update depth for all descendants of a task.
+
+    Called when a task's parent_id changes or a task is created with a parent.
+    Uses iterative approach to avoid deep recursion.
+    """
+    # BFS: process children at each level
+    queue = [(task_id, new_depth)]
+    while queue:
+        current_id, current_depth = queue.pop(0)
+        children = conn.execute(
+            "SELECT id FROM tasks WHERE parent_id = ?", (current_id,)
+        ).fetchall()
+        for child in children:
+            child_depth = current_depth + 1
+            conn.execute(
+                "UPDATE tasks SET depth = ? WHERE id = ?", (child_depth, child["id"])
+            )
+            queue.append((child["id"], child_depth))
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +195,12 @@ def list_project_tasks(params, query, body, headers):
         conditions.append("t.tags LIKE ?")
         sql_params.append(f'%"{tag_filter}"%')
 
+    # Filter by type
+    type_filter = _get_first(query.get("type"))
+    if type_filter:
+        conditions.append("t.type = ?")
+        sql_params.append(type_filter)
+
     where_clause = " AND ".join(conditions)
 
     rows = conn.execute(
@@ -207,10 +252,16 @@ def create_task(params, query, body, headers):
     if priority is None and data.get("priority"):
         raise ValueError(f"Invalid priority: {data['priority']}")
     priority = priority or "none"
+    task_type, type_err = validate_task_type(data.get("type"))
+    if type_err:
+        conn.close()
+        return 400, {"error": type_err, "code": "VALIDATION_ERROR"}
+    task_type = task_type or "task"
     assignee = validate_text(data.get("assignee"), 200, "assignee")
     tags = data.get("tags") or []
     due_date = validate_text(data.get("due_date"), 20, "due_date") or None
     parent_id = validate_text(data.get("parent_id"), 20, "parent_id") or None
+    git_branch = validate_text(data.get("git_branch"), 200, "git_branch") or ""
 
     # Validate parent_id exists AND belongs to same project
     if parent_id:
@@ -223,6 +274,9 @@ def create_task(params, query, body, headers):
         if parent["project_id"] != project_id:
             conn.close()
             return 400, {"error": "Parent task must belong to the same project", "code": "VALIDATION_ERROR"}
+
+    # Compute depth based on parent
+    depth = _compute_depth(conn, parent_id)
 
     task_id = gen_id()
     created_by = (data.get("created_by") or actor).strip()
@@ -241,14 +295,14 @@ def create_task(params, query, body, headers):
     # to prevent race conditions with concurrent task creation
     conn.execute(
         """INSERT INTO tasks
-           (id, project_id, parent_id, title, description, status, priority, assignee,
-            tags, position, due_date, started_at, completed_at, metadata, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+           (id, project_id, parent_id, title, description, status, type, priority, assignee,
+            tags, position, due_date, started_at, completed_at, metadata, created_by, depth, git_branch)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                    (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ? AND status = ?),
-                   ?, ?, ?, ?, ?)""",
-        (task_id, project_id, parent_id, title, description, status, priority, assignee,
+                   ?, ?, ?, ?, ?, ?, ?)""",
+        (task_id, project_id, parent_id, title, description, status, task_type, priority, assignee,
          json.dumps(tags), project_id, status, due_date, started_at, completed_at,
-         json.dumps({}), created_by),
+         json.dumps({}), created_by, depth, git_branch),
     )
 
     # Log HITL activity for creation
@@ -267,6 +321,8 @@ def create_task(params, query, body, headers):
 
     # Fire webhook notification
     on_task_created(task, actor, slug)
+
+    publish("task_created", {"id": task_id, "project": slug, "title": task.get("title", "")})
 
     return 201, {"task": task}
 
@@ -335,12 +391,54 @@ def update_task(params, query, body, headers):
             return 400, {"error": f"Invalid priority. Must be one of: {', '.join(sorted(VALID_PRIORITIES))}", "code": "VALIDATION_ERROR"}
         updates["priority"] = new_priority
 
+    # Type
+    if "type" in data and data["type"] is not None:
+        new_type, type_err = validate_task_type(data["type"])
+        if type_err:
+            conn.close()
+            return 400, {"error": type_err, "code": "VALIDATION_ERROR"}
+        updates["type"] = new_type
+
     # Assignee
     if "assignee" in data and data["assignee"] is not None:
         new_assignee = str(data["assignee"]).strip()
         updates["assignee"] = new_assignee
         if new_assignee != row["assignee"]:
             detail_changes["assignee"] = new_assignee
+
+    # Parent ID — with cascade depth update
+    if "parent_id" in data:
+        new_parent = validate_text(data["parent_id"], 20, "parent_id") or None
+        old_parent = row["parent_id"]
+        if new_parent != old_parent:
+            # Validate new parent exists and belongs to same project
+            if new_parent:
+                parent = conn.execute(
+                    "SELECT id, project_id FROM tasks WHERE id = ? AND id != ?",
+                    (new_parent, task_id),
+                ).fetchone()
+                if not parent:
+                    conn.close()
+                    return 400, {"error": f"Parent task '{new_parent}' not found", "code": "VALIDATION_ERROR"}
+                if parent["project_id"] != project_id:
+                    conn.close()
+                    return 400, {"error": "Parent task must belong to the same project", "code": "VALIDATION_ERROR"}
+                # Prevent circular reference: walk UP ancestors from new_parent
+                # to check if task_id appears (meaning new_parent is a descendant)
+                ancestor_id = new_parent
+                visited = set()
+                while ancestor_id:
+                    if ancestor_id == task_id:
+                        conn.close()
+                        return 400, {"error": "Circular reference: cannot set a descendant as parent", "code": "VALIDATION_ERROR"}
+                    if ancestor_id in visited:
+                        break  # safety: existing circular data in DB
+                    visited.add(ancestor_id)
+                    ancestor_row = conn.execute("SELECT parent_id FROM tasks WHERE id = ?", (ancestor_id,)).fetchone()
+                    ancestor_id = ancestor_row["parent_id"] if ancestor_row else None
+
+            updates["parent_id"] = new_parent
+            updates["depth"] = _compute_depth(conn, new_parent)
 
     # Tags
     if "tags" in data and data["tags"] is not None:
@@ -360,6 +458,10 @@ def update_task(params, query, body, headers):
     # Metadata
     if "metadata" in data and data["metadata"] is not None:
         updates["metadata"] = json.dumps(data["metadata"])
+
+    # Git branch
+    if "git_branch" in data:
+        updates["git_branch"] = validate_text(data["git_branch"], 200, "git_branch") or ""
 
     # Build and execute UPDATE
     if not updates:
@@ -386,6 +488,11 @@ def update_task(params, query, body, headers):
         f"UPDATE tasks SET {', '.join(set_parts)}, updated_at = datetime('now') WHERE id = ?",
         set_values,
     )
+
+    # Cascade depth update to all children when parent changed
+    if "parent_id" in updates:
+        new_depth = updates.get("depth", 0)
+        _cascade_depth(conn, task_id, new_depth)
 
     # Log HITL status transition activity
     new_status = updates.get("status")
@@ -440,6 +547,8 @@ def update_task(params, query, body, headers):
         if comment_text:
             on_task_comment(task, actor, comment_text, project_slug)
 
+    publish("task_updated", {"id": task_id, "project": project_slug, "title": task.get("title", "")})
+
     return 200, {"task": task}
 
 
@@ -462,6 +571,10 @@ def delete_task(params, query, body, headers):
     project_id = row["project_id"]
     task_title = row["title"]
 
+    # Resolve project slug for SSE publish
+    proj_row = conn.execute("SELECT slug FROM projects WHERE id = ?", (project_id,)).fetchone()
+    project_slug = proj_row["slug"] if proj_row else ""
+
     # Delete comments associated with this task
     conn.execute("DELETE FROM comments WHERE target_type = 'task' AND target_id = ?", (task_id,))
 
@@ -473,6 +586,8 @@ def delete_task(params, query, body, headers):
 
     conn.commit()
     conn.close()
+
+    publish("task_deleted", {"id": task_id, "project": project_slug})
 
     return 200, {"deleted": True, "id": task_id}
 
@@ -516,6 +631,18 @@ def list_cross_project_tasks(params, query, body, headers):
     if priority_filter:
         conditions.append("t.priority = ?")
         sql_params.append(priority_filter)
+
+    # Type filter
+    type_filter = _get_first(query.get("type"))
+    if type_filter:
+        conditions.append("t.type = ?")
+        sql_params.append(type_filter)
+
+    # Git branch filter
+    branch_filter = _get_first(query.get("branch"))
+    if branch_filter:
+        conditions.append("t.git_branch = ?")
+        sql_params.append(branch_filter)
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
@@ -603,3 +730,165 @@ def list_subtasks(params, query, body, headers):
     children = [_task_row_to_dict(r) for r in rows]
     conn.close()
     return 200, {"tasks": children}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/projects/{slug}/tasks/tree — hierarchical tree view
+# ---------------------------------------------------------------------------
+
+@router.get("/api/projects/{slug}/tasks/tree")
+def list_project_tasks_tree(params, query, body, headers):
+    """Return all tasks in a project as a nested tree structure.
+
+    Query params:
+        type — filter by task type (e.g. type=mission to show only missions)
+        status — filter by status
+        depth_max — max depth to include (default: no limit)
+    """
+    slug = params["slug"]
+    conn = get_db()
+
+    project = conn.execute("SELECT id FROM projects WHERE slug = ?", (slug,)).fetchone()
+    if not project:
+        conn.close()
+        return 404, {"error": f"Project '{slug}' not found", "code": "NOT_FOUND"}
+
+    project_id = project["id"]
+
+    # Build conditions
+    conditions = ["t.project_id = ?"]
+    sql_params: list = [project_id]
+
+    type_filter = _get_first(query.get("type"))
+    if type_filter:
+        conditions.append("t.type = ?")
+        sql_params.append(type_filter)
+
+    status_filter = _get_first(query.get("status"))
+    if status_filter:
+        conditions.append("t.status = ?")
+        sql_params.append(status_filter)
+
+    depth_max = _get_first(query.get("depth_max"))
+    if depth_max:
+        try:
+            conditions.append("t.depth <= ?")
+            sql_params.append(int(depth_max))
+        except ValueError:
+            pass
+
+    where_clause = " AND ".join(conditions)
+
+    # Fetch all matching tasks ordered by depth, then position
+    rows = conn.execute(
+        f"""SELECT t.* FROM tasks t
+            WHERE {where_clause}
+            ORDER BY t.depth ASC, t.position ASC, t.created_at ASC""",
+        sql_params,
+    ).fetchall()
+
+    # Build tree structure
+    all_tasks = {}
+    for r in rows:
+        task = _task_row_to_dict(r)
+        task["children"] = []
+        all_tasks[task["id"]] = task
+
+    roots = []
+    for task in all_tasks.values():
+        parent_id = task.get("parent_id")
+        if parent_id and parent_id in all_tasks:
+            all_tasks[parent_id]["children"].append(task)
+        else:
+            roots.append(task)
+
+    conn.close()
+    return 200, {"tree": roots, "total": len(all_tasks)}
+
+
+# ── Automation Endpoints (for Hermes cron) ───────────────────────────────
+
+@router.get("/api/automation/overdue")
+def list_overdue_tasks(params, query, body, headers):
+    """List tasks past their due_date that are not done.
+
+    Designed for cron consumption — Hermes cron calls this daily
+    to generate overdue alerts. No scheduler needed in AgentBoard.
+    """
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT t.*, p.name as project_name, p.slug as project_slug
+           FROM tasks t
+           JOIN projects p ON t.project_id = p.id
+           WHERE p.is_archived = 0
+             AND t.status NOT IN ('done', 'completed', 'cancelled')
+             AND t.due_date IS NOT NULL
+             AND t.due_date < date('now')
+           ORDER BY t.due_date ASC""",
+    ).fetchall()
+    conn.close()
+
+    tasks = []
+    for r in rows:
+        task = _task_row_to_dict(r)
+        task["project_name"] = r["project_name"]
+        task["project_slug"] = r["project_slug"]
+        tasks.append(task)
+
+    return 200, {"overdue": tasks, "count": len(tasks)}
+
+
+@router.get("/api/automation/daily")
+def daily_stats(params, query, body, headers):
+    """Daily digest endpoint for cron consumption.
+
+    Returns counts and summaries suitable for a daily notification.
+    Hermes cron calls this to generate daily standup messages.
+    """
+    conn = get_db()
+
+    # Overall counts
+    counts = conn.execute("""
+        SELECT status, COUNT(*) as cnt
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE p.is_archived = 0
+        GROUP BY status
+    """).fetchall()
+
+    # Tasks completed today
+    completed_today = conn.execute("""
+        SELECT t.title, p.name as project_name, p.slug as project_slug
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE t.status IN ('done', 'completed')
+          AND date(t.completed_at) = date('now')
+    """).fetchall()
+
+    # Overdue count
+    overdue_count = conn.execute("""
+        SELECT COUNT(*) as cnt
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE p.is_archived = 0
+          AND t.status NOT IN ('done', 'completed', 'cancelled')
+          AND t.due_date IS NOT NULL
+          AND t.due_date < date('now')
+    """).fetchone()["cnt"]
+
+    # Active plans
+    active_plans = conn.execute("""
+        SELECT COUNT(*) as cnt
+        FROM plans
+        WHERE status IN ('proposed', 'approved', 'executing')
+    """).fetchone()["cnt"]
+
+    conn.close()
+
+    return 200, {
+        "status_counts": {r["status"]: r["cnt"] for r in counts},
+        "completed_today": [dict(r) for r in completed_today],
+        "completed_today_count": len(completed_today),
+        "overdue_count": overdue_count,
+        "active_plans": active_plans,
+    }

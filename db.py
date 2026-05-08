@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 14
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -50,15 +50,16 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 CREATE INDEX IF NOT EXISTS idx_projects_position ON projects(position);
 CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(is_archived);
-CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
 
 -- Tasks
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES tasks(id),
     title TEXT NOT NULL,
     description TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'todo',
+    type TEXT DEFAULT 'task',
     priority TEXT DEFAULT 'none',
     assignee TEXT DEFAULT '',
     tags TEXT DEFAULT '[]',
@@ -95,7 +96,6 @@ CREATE TABLE IF NOT EXISTS pages (
 );
 CREATE INDEX IF NOT EXISTS idx_pages_project ON pages(project_id);
 CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_id);
-CREATE INDEX IF NOT EXISTS idx_pages_visibility ON pages(visibility);
 
 -- Agents
 CREATE TABLE IF NOT EXISTS agents (
@@ -174,6 +174,22 @@ CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages BEGIN
     INSERT INTO pages_fts(pages_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
     INSERT INTO pages_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
 END;
+
+-- Messages: lightweight inter-agent handoff notifications
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL DEFAULT '',
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    subject TEXT DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_to_agent ON messages(to_agent, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_from_agent ON messages(from_agent, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_task ON messages(task_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
 """
 
 # Schema v5 tables — also available as standalone SQL for tests
@@ -277,6 +293,30 @@ def get_db(db_path=None) -> sqlite3.Connection:
     return conn
 
 
+def _create_late_indexes(conn: sqlite3.Connection):
+    """Create indexes on columns added by ALTER TABLE migrations.
+
+    These indexes can't live in SCHEMA_SQL because SCHEMA_SQL runs via
+    executescript() BEFORE migrations, and the columns only exist after
+    migration ALTER TABLE statements run.
+
+    Each index creation is wrapped in a try/except so that a missing column
+    on an intermediate schema version is a safe no-op (the corresponding
+    migration will add the column and its own index if needed).
+    """
+    _late_indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility)",
+        "CREATE INDEX IF NOT EXISTS idx_pages_visibility ON pages(visibility)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)",
+    ]
+    for sql in _late_indexes:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass  # Column doesn't exist yet — migration will handle it
+
+
 def _ensure_schema(conn: sqlite3.Connection):
     """Create tables if they don't exist, run migrations if needed."""
     conn.executescript(SCHEMA_SQL)
@@ -285,6 +325,10 @@ def _ensure_schema(conn: sqlite3.Connection):
     current = row['v'] if row['v'] else 0
     if current < SCHEMA_VERSION:
         _run_migrations(conn, current, SCHEMA_VERSION)
+    # Post-migration: create indexes on columns added by ALTER TABLE migrations.
+    # These can't be in SCHEMA_SQL because CREATE TABLE IF NOT EXISTS skips
+    # existing tables, but the columns only exist after migrations run.
+    _create_late_indexes(conn)
 
 
 def _run_migrations(conn: sqlite3.Connection, from_ver: int, to_ver: int):
@@ -398,11 +442,9 @@ ALTER TABLE discussions ADD COLUMN leader TEXT DEFAULT '';""",
 -- then recreate them AFTER. FTS5 content=pages creates a hard reference
 -- that blocks DROP TABLE pages.
 
--- Step 1: Add visibility to projects and discussions
+-- Step 1: Add visibility to projects (discussions already has it from v5)
 ALTER TABLE projects ADD COLUMN visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden'));
-ALTER TABLE discussions ADD COLUMN visibility TEXT DEFAULT 'public' CHECK(visibility IN ('public', 'hidden'));
 CREATE INDEX IF NOT EXISTS idx_projects_visibility ON projects(visibility);
-CREATE INDEX IF NOT EXISTS idx_discussions_visibility ON discussions(visibility);
 
 -- Step 2: Drop FTS5 virtual table and triggers that reference pages
 DROP TRIGGER IF EXISTS pages_ai;
@@ -469,6 +511,89 @@ CREATE INDEX IF NOT EXISTS idx_activity_project_created ON activity(project_id, 
 CREATE INDEX IF NOT EXISTS idx_activity_target_type ON activity(target_type);
 -- Composite: tasks by assignee+created_at (KPI engine tasks_created by date)
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee_created ON tasks(assignee, created_at);""",
+        10: """-- Schema v10: task types + messages table for agent handoffs
+
+-- Add type column to existing tasks table
+ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'task';
+CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);
+
+-- Messages: lightweight inter-agent handoff (not structured discussions)
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL DEFAULT '',
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    subject TEXT DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_to_agent ON messages(to_agent, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_from_agent ON messages(from_agent, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_task ON messages(task_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);""",
+        11: """-- Schema v11: ensure tasks.type column exists (no CHECK), create messages table
+
+-- Step 1: Add type column if missing (handles DBs where v10 was skipped)
+ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'task';
+
+-- Step 2: Create messages table if missing (v10 may have been entirely skipped)
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL DEFAULT '',
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    subject TEXT DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_to_agent ON messages(to_agent, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_from_agent ON messages(from_agent, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_task ON messages(task_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
+
+-- Step 3: Create type index if missing
+CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
+    """,
+        12: """-- Schema v12: hierarchical tasks (depth) + plans table
+
+-- Step 1: Add depth column to tasks for hierarchy performance
+ALTER TABLE tasks ADD COLUMN depth INTEGER DEFAULT 0;
+
+-- Step 2: Hierarchy indexes
+CREATE INDEX IF NOT EXISTS idx_tasks_parent_status ON tasks(parent_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_depth ON tasks(project_id, depth);
+CREATE INDEX IF NOT EXISTS idx_tasks_depth ON tasks(depth);
+
+-- Step 3: Plans table for AI planning workflow
+CREATE TABLE IF NOT EXISTS plans (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    description TEXT NOT NULL DEFAULT '',
+    context TEXT DEFAULT '',
+    steps TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'proposed' CHECK(status IN ('proposed','approved','executing','done','rejected')),
+    assignee TEXT DEFAULT '',
+    metadata TEXT DEFAULT '{}',
+    mission_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_plans_project ON plans(project_id);
+CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status);
+CREATE INDEX IF NOT EXISTS idx_plans_assignee ON plans(assignee);
+CREATE INDEX IF NOT EXISTS idx_plans_created ON plans(created_at DESC);
+    """,
+        13: """-- Schema v13: step_results column for step-level workflow gates
+ALTER TABLE plans ADD COLUMN step_results TEXT DEFAULT '[]';
+    """,
+        14: """-- Schema v14: git_branch column for branch-per-task tracking
+ALTER TABLE tasks ADD COLUMN git_branch TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_tasks_git_branch ON tasks(git_branch);
+    """,
     }
     for ver in range(from_ver + 1, to_ver + 1):
         sql = migrations.get(ver)

@@ -26,6 +26,12 @@ def search(params, query, body, headers):
     if not q:
         return 400, {"error": "Query parameter 'q' is required", "code": "VALIDATION_ERROR"}
 
+    # Sanitize FTS5 query — bare numbers are treated as column references,
+    # and special characters (:, *, ^, etc.) have FTS5 syntax meaning.
+    # Wrap tokens that look like bare numbers in quotes to treat them as literals.
+    import re as _re
+    q = _re.sub(r'\b\d+\b', lambda m: f'"{m.group()}"', q)
+
     # Parse optional filters
     project_slug = query.get("project", [None])[0]
     search_type = query.get("type", [None])[0]

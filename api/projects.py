@@ -16,6 +16,7 @@ import json
 from db import get_db, gen_id, slugify
 from api import router, is_authenticated
 from api.validation import validate_title, validate_text, validate_enum, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH, VALID_VISIBILITIES
+from event_bus import publish
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +224,8 @@ def create_project(params, query, body, headers):
     project = _project_row_to_dict(row)
     conn.close()
 
+    publish("project_created", {"id": project_id, "slug": slug, "name": project.get("name", "")})
+
     return 201, {"project": project}
 
 
@@ -321,6 +324,8 @@ def update_project(params, query, body, headers):
     project = _project_row_to_dict(updated)
     conn.close()
 
+    publish("project_updated", {"slug": slug, "name": project.get("name", "")})
+
     return 200, {"project": project}
 
 
@@ -356,6 +361,8 @@ def archive_project(params, query, body, headers):
     project["is_archived"] = 1
     conn.close()
 
+    publish("project_archived", {"slug": slug, "name": project.get("name", "")})
+
     return 200, {"project": project}
 
 
@@ -390,6 +397,8 @@ def restore_project(params, query, body, headers):
     project = _project_row_to_dict(row)
     project["is_archived"] = 0
     conn.close()
+
+    publish("project_restored", {"slug": slug, "name": project.get("name", "")})
 
     return 200, {"project": project}
 
@@ -537,5 +546,7 @@ def setup(params, query, body, headers):
     row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     project = _project_row_to_dict(row)
     conn.close()
+
+    publish("project_created", {"id": project_id, "slug": slug, "name": name, "via": "setup"})
 
     return 201, {"project": project}
