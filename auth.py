@@ -78,9 +78,9 @@ def _ensure_db_key():
         kid = gen_id()
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         conn.execute(
-            """INSERT INTO api_keys (id, key_hash, label, is_active, created_at)
-               VALUES (?, ?, ?, 1, ?)""",
-            (kid, key_hash, "imported", now),
+            """INSERT INTO api_keys (id, key_hash, label, is_active, created_at, permissions, rate_limit)
+               VALUES (?, ?, ?, 1, ?, ?, ?)""",
+            (kid, key_hash, "imported", now, "read,write,admin", 0),
         )
         conn.commit()
         conn.close()
@@ -97,9 +97,9 @@ def _ensure_db_key():
     kid = gen_id()
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn.execute(
-        """INSERT INTO api_keys (id, key_hash, label, is_active, created_at)
-           VALUES (?, ?, ?, 1, ?)""",
-        (kid, key_hash, "default", now),
+        """INSERT INTO api_keys (id, key_hash, label, is_active, created_at, permissions, rate_limit)
+           VALUES (?, ?, ?, 1, ?, ?, ?)""",
+        (kid, key_hash, "default", now, "read,write,admin", 0),
     )
     conn.commit()
     conn.close()
@@ -113,7 +113,10 @@ def validate_key_against_db(raw_key: str) -> tuple:
     until their grace_until timestamp passes.
 
     Returns:
-        (is_valid: bool, key_id: str|None)
+        (is_valid: bool, key_id: str|None, permissions: str, agent: str, rate_limit: int)
+        permissions is comma-separated (e.g. "read,write"), defaults to "read,write".
+        agent is the agent label (e.g. "pi"), defaults to "".
+        rate_limit is requests per window (0 = unlimited), defaults to 60.
     """
     key_hash = hash_key(raw_key)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -121,7 +124,7 @@ def validate_key_against_db(raw_key: str) -> tuple:
 
     # Check active keys
     row = conn.execute(
-        """SELECT id FROM api_keys
+        """SELECT id, permissions, agent, rate_limit FROM api_keys
            WHERE key_hash = ? AND is_active = 1""",
         (key_hash,),
     ).fetchone()
@@ -134,11 +137,11 @@ def validate_key_against_db(raw_key: str) -> tuple:
         )
         conn.commit()
         conn.close()
-        return True, row["id"]
+        return True, row["id"], row["permissions"] or "read,write", row["agent"] or "", row["rate_limit"] if row["rate_limit"] is not None else 60
 
     # Check grace period keys
     row = conn.execute(
-        """SELECT id FROM api_keys
+        """SELECT id, permissions, agent, rate_limit FROM api_keys
            WHERE key_hash = ? AND is_active = 0
            AND grace_until IS NOT NULL AND grace_until > ?""",
         (key_hash, now),
@@ -146,9 +149,9 @@ def validate_key_against_db(raw_key: str) -> tuple:
 
     conn.close()
     if row:
-        return True, row["id"]
+        return True, row["id"], row["permissions"] or "read,write", row["agent"] or "", row["rate_limit"] if row["rate_limit"] is not None else 60
 
-    return False, None
+    return False, None, "", "", 60
 
 
 def validate_key(raw_key: str, stored_hash: str) -> bool:
@@ -181,15 +184,15 @@ def check_auth_multi(headers: dict) -> tuple:
     """Check auth using the multi-key database path.
 
     Returns:
-        (is_valid: bool, key_id: str|None)
+        (is_valid: bool, key_id: str|None, permissions: str, agent: str, rate_limit: int)
     """
     auth_header = headers.get("authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return False, None
-    token = auth_header[7:]
-    if len(token) > 1024:
-        return False, None
-    return validate_key_against_db(token)
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        if len(token) > 1024:
+            return False, None, "", "", 60
+        return validate_key_against_db(token)
+    return False, None, "", "", 60
 
 
 def has_db_keys() -> bool:

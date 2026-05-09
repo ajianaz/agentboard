@@ -13,7 +13,7 @@ Endpoints:
 
 import json
 from db import get_db, gen_id
-from api import router
+from api import require_permission, router
 from api.validation import validate_text
 
 
@@ -22,6 +22,7 @@ from api.validation import validate_text
 # ---------------------------------------------------------------------------
 
 @router.post("/api/messages")
+@require_permission("write")
 def send_message(params, query, body, headers):
     """Send a message to an agent (or broadcast to all with to_agent='')."""
     data = _parse_msg_body(body)
@@ -127,6 +128,7 @@ def list_messages(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.patch("/api/messages/{id}/read")
+@require_permission("write")
 def mark_read(params, query, body, headers):
     """Mark a message as read."""
     msg_id = params["id"]
@@ -149,6 +151,7 @@ def mark_read(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.patch("/api/messages/read-all")
+@require_permission("write")
 def mark_all_read(params, query, body, headers):
     """Mark all unread messages for an agent as read."""
     agent = headers.get("x-actor", "")
@@ -172,6 +175,7 @@ def mark_all_read(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.delete("/api/messages/{id}")
+@require_permission("write")
 def delete_message(params, query, body, headers):
     """Delete a message."""
     msg_id = params["id"]

@@ -19,7 +19,7 @@ Endpoints:
 
 import json
 from db import get_db, gen_id
-from api import router
+from api import require_permission, router
 from api.validation import (
     validate_enum, validate_text, validate_steps,
     VALID_PLAN_STATUSES, VALID_STEP_STATUSES,
@@ -258,6 +258,7 @@ def get_plan(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/projects/{slug}/plans")
+@require_permission("write")
 def create_plan(params, query, body, headers):
     """Create a new plan (status=proposed)."""
     slug = params["slug"]
@@ -335,6 +336,7 @@ def create_plan(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.patch("/api/plans/{id}")
+@require_permission("write")
 def update_plan(params, query, body, headers):
     """Update plan fields (description, context, steps, assignee, metadata)."""
     plan_id = params["id"]
@@ -432,6 +434,7 @@ def update_plan(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.delete("/api/plans/{id}")
+@require_permission("write")
 def delete_plan(params, query, body, headers):
     """Delete a plan (only proposed or rejected plans can be deleted)."""
     plan_id = params["id"]
@@ -525,24 +528,28 @@ def _status_transition(plan_id: str, target_status: str, actor: str, body: bytes
 
 
 @router.post("/api/plans/{id}/approve")
+@require_permission("admin")
 def approve_plan(params, query, body, headers):
     """Approve a proposed plan. Optionally update steps in the same call."""
     return _status_transition(params["id"], "approved", headers.get("x-actor", "owner"), body)
 
 
 @router.post("/api/plans/{id}/reject")
+@require_permission("admin")
 def reject_plan(params, query, body, headers):
     """Reject a proposed plan."""
     return _status_transition(params["id"], "rejected", headers.get("x-actor", "owner"))
 
 
 @router.post("/api/plans/{id}/execute")
+@require_permission("admin")
 def execute_plan(params, query, body, headers):
     """Start executing an approved plan."""
     return _status_transition(params["id"], "executing", headers.get("x-actor", "owner"), body)
 
 
 @router.post("/api/plans/{id}/complete")
+@require_permission("admin")
 def complete_plan(params, query, body, headers):
     """Mark an executing plan as done."""
     return _status_transition(params["id"], "done", headers.get("x-actor", "owner"))
@@ -553,6 +560,7 @@ def complete_plan(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/plans/{id}/step/{index}")
+@require_permission("write")
 def update_step(params, query, body, headers):
     """Update the status/result of a single step within an executing plan.
 

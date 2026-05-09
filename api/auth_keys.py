@@ -12,12 +12,13 @@ Routes:
 import json
 from datetime import datetime, timezone, timedelta
 
-from api import router
+from api import router, require_permission
 from db import get_db, gen_id
 from auth import generate_api_key, hash_key, validate_key_against_db
 
 
 @router.get("/api/auth/keys")
+@require_permission("admin")
 def list_keys(params, query, body, headers):
     """List all API keys. Raw keys are never returned."""
     conn = get_db()
@@ -31,6 +32,7 @@ def list_keys(params, query, body, headers):
 
 
 @router.post("/api/auth/keys")
+@require_permission("admin")
 def create_key(params, query, body, headers):
     """Create a new API key. Returns the raw key exactly once."""
     try:
@@ -39,6 +41,17 @@ def create_key(params, query, body, headers):
         return 400, {"error": "Invalid JSON", "code": "BAD_REQUEST"}
 
     label = data.get("label", "").strip() or "generated"
+    permissions = data.get("permissions", "read,write").strip()
+    rate_limit = data.get("rate_limit")
+    agent = data.get("agent", "").strip()
+
+    # Validate permissions
+    valid_perms = {"read", "write", "admin", "webhook", "analytics"}
+    perm_list = [p.strip() for p in permissions.split(",") if p.strip()]
+    invalid = set(perm_list) - valid_perms
+    if invalid:
+        return 400, {"error": f"Invalid permissions: {', '.join(invalid)}", "code": "BAD_REQUEST"}
+
     raw_key = generate_api_key()
     key_hash = hash_key(raw_key)
     kid = gen_id()
@@ -47,9 +60,9 @@ def create_key(params, query, body, headers):
     conn = get_db()
     try:
         conn.execute(
-            """INSERT INTO api_keys (id, key_hash, label, is_active, created_at)
-               VALUES (?, ?, ?, 1, ?)""",
-            (kid, key_hash, label, now),
+            """INSERT INTO api_keys (id, key_hash, label, is_active, created_at, permissions, agent, rate_limit)
+               VALUES (?, ?, ?, 1, ?, ?, ?, ?)""",
+            (kid, key_hash, label, now, permissions, agent, rate_limit),
         )
         conn.commit()
     except Exception as e:
@@ -63,6 +76,9 @@ def create_key(params, query, body, headers):
     return 201, {
         "id": kid,
         "label": label,
+        "permissions": permissions,
+        "agent": agent,
+        "rate_limit": rate_limit,
         "key": raw_key,  # shown ONLY on creation
         "created_at": now,
         "warning": "Save this key now — it cannot be retrieved again.",
@@ -70,6 +86,7 @@ def create_key(params, query, body, headers):
 
 
 @router.patch("/api/auth/keys/{id}")
+@require_permission("admin")
 def update_key(params, query, body, headers):
     """Update a key's label or deactivate it with optional grace period."""
     try:
@@ -128,6 +145,7 @@ def update_key(params, query, body, headers):
 
 
 @router.delete("/api/auth/keys/{id}")
+@require_permission("admin")
 def delete_key(params, query, body, headers):
     """Permanently delete an API key. Cannot be undone."""
     kid = params.get("id")

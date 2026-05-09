@@ -10,7 +10,7 @@ Endpoints:
 
 import json
 from db import get_db, gen_id
-from api import router
+from api import require_permission, router
 from api.validation import validate_text, MAX_NAME_LENGTH
 
 
@@ -72,6 +72,7 @@ def list_agents(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/agents")
+@require_permission("admin")
 def create_agent(params, query, body, headers):
     data = _parse_body(body)
     if data is None:
@@ -139,6 +140,7 @@ def get_agent(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.patch("/api/agents/{id}")
+@require_permission("admin")
 def update_agent(params, query, body, headers):
     agent_id = params["id"].lower()  # normalize path param too
     data = _parse_body(body)

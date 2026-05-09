@@ -97,6 +97,53 @@ def is_authenticated(headers: dict) -> bool:
     """
     return headers.get("x-auth-valid", "false") == "true"
 
+
+def get_permissions(headers: dict) -> list[str]:
+    """Get the list of permissions from the X-Key-Permissions header.
+
+    Returns a list like ["read", "write"] or ["read", "write", "admin"].
+    """
+    raw = headers.get("x-key-permissions", "")
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def has_permission(headers: dict, required: str) -> bool:
+    """Check if the current request has a specific permission.
+
+    Permission hierarchy: admin includes all permissions.
+    """
+    perms = get_permissions(headers)
+    if "admin" in perms:
+        return True
+    return required in perms
+
+
+def require_permission(*permissions: str):
+    """Decorator to enforce permission on an API handler.
+
+    Usage:
+        @router.post("/api/projects")
+        @require_permission("admin")
+        def create_project(params, query, body, headers):
+            ...
+    """
+    def decorator(fn):
+        def wrapper(params, query, body, headers):
+            # Skip permission check for unauthenticated (public) requests
+            # — they already can't reach write endpoints via server.py auth
+            if not is_authenticated(headers):
+                return fn(params, query, body, headers)
+
+            for perm in permissions:
+                if not has_permission(headers, perm):
+                    return 403, {
+                        "error": f"Permission denied: requires '{perm}'",
+                        "code": "FORBIDDEN",
+                    }
+            return fn(params, query, body, headers)
+        return wrapper
+    return decorator
+
 # Route modules will be imported here when they exist
 # Each module calls router.get/post/patch/delete to register its routes.
 # from api import projects, tasks, pages, agents, comments, activity, search

@@ -18,7 +18,7 @@ from config import get_config
 
 DB_PATH = None  # set on first get_db() call
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -593,6 +593,11 @@ ALTER TABLE plans ADD COLUMN step_results TEXT DEFAULT '[]';
         14: """-- Schema v14: git_branch column for branch-per-task tracking
 ALTER TABLE tasks ADD COLUMN git_branch TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_tasks_git_branch ON tasks(git_branch);
+    """,
+        15: """-- Schema v15: rate_limit column for per-key rate limiting + promote existing keys to admin
+ALTER TABLE api_keys ADD COLUMN rate_limit INTEGER DEFAULT 60;
+-- Promote all existing keys to read,write,admin for backward compatibility
+UPDATE api_keys SET permissions = 'read,write,admin' WHERE permissions = 'read,write';
     """,
     }
     for ver in range(from_ver + 1, to_ver + 1):

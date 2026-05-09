@@ -79,6 +79,11 @@ DEFAULTS = {
         "max_steps": 50,                        # max steps per plan
         "default_assignee": "",                 # fallback assignee if not specified
     },
+    "rate_limit": {
+        "default": 60,          # requests per window per key (0 = unlimited)
+        "burst": 10,            # max requests per second
+        "window_seconds": 60,   # sliding window duration
+    },
     "agents": {
         # agent_id → project_slug mapping for auto-tracking
         # Agent events will route to the corresponding project

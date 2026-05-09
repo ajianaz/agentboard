@@ -9,7 +9,7 @@ Endpoints:
 import json
 from datetime import datetime, timezone
 from db import get_db, gen_id
-from api import router
+from api import require_permission, router
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +158,7 @@ def _build_project_export(conn, project_row) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.post("/api/import")
+@require_permission("admin")
 def import_data(params, query, body, headers):
     """Import data from a JSON export.
 
