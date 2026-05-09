@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 from db import get_db
 from kpi_engine import get_kpi_summary, get_kpi_engine
-from api import router
+from api import require_permission, router
 
 
 @router.get("/api/analytics/kpi")
@@ -288,6 +288,7 @@ def export_analytics(params, query, body, headers):
 
 
 @router.post("/api/analytics/recompute")
+@require_permission("admin")
 def recompute_kpi(params, query, body, headers):
     """Trigger immediate KPI recomputation.
 

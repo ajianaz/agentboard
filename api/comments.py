@@ -9,7 +9,7 @@ Endpoints:
 
 import json
 from db import get_db, gen_id
-from api import router
+from api import require_permission, router
 from api.validation import validate_text, MAX_COMMENT_LENGTH
 
 
@@ -64,6 +64,7 @@ def list_task_comments(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/tasks/{id}/comments")
+@require_permission("write")
 def create_task_comment(params, query, body, headers):
     task_id = params["id"]
     data = _parse_body(body)
@@ -131,6 +132,7 @@ def list_page_comments(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/pages/{id}/comments")
+@require_permission("write")
 def create_page_comment(params, query, body, headers):
     page_id = params["id"]
     data = _parse_body(body)

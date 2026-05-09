@@ -12,7 +12,7 @@ Endpoints:
 
 import json
 from db import get_db, gen_id
-from api import router, is_authenticated
+from api import require_permission, router, is_authenticated
 from api.validation import validate_title, validate_text, validate_enum, MAX_TITLE_LENGTH, MAX_CONTENT_LENGTH, VALID_VISIBILITIES
 
 
@@ -137,6 +137,7 @@ def list_all_pages(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/pages")
+@require_permission("write")
 def create_standalone_page(params, query, body, headers):
     """Create a page without a project (project_id = NULL).
 
@@ -247,6 +248,7 @@ def list_pages(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/projects/{slug}/pages")
+@require_permission("write")
 def create_page(params, query, body, headers):
     slug = params["slug"]
     data = _parse_body(body)
@@ -321,6 +323,7 @@ def create_page(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.patch("/api/pages/{id}")
+@require_permission("write")
 def update_page(params, query, body, headers):
     page_id = params["id"]
     data = _parse_body(body)
@@ -408,6 +411,7 @@ def update_page(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.delete("/api/pages/{id}")
+@require_permission("write")
 def delete_page(params, query, body, headers):
     page_id = params["id"]
     actor = headers.get("x-actor", "owner")
@@ -450,6 +454,7 @@ def delete_page(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/pages/{id}/move")
+@require_permission("write")
 def move_page(params, query, body, headers):
     page_id = params["id"]
     data = _parse_body(body)

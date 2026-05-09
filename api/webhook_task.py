@@ -28,7 +28,7 @@ Rate limit: 60 requests/minute per agent (in-memory)
 import json
 import time
 from db import get_db
-from api import router
+from api import require_permission, router
 
 # ── Simple in-memory rate limiter ──────────────────────────────────────
 _rate_limits: dict[str, list[float]] = {}
@@ -53,6 +53,7 @@ VALID_STATUSES = {"todo", "proposed", "in_progress", "review", "done"}
 
 
 @router.post("/api/webhook/task-update")
+@require_permission("webhook")
 def webhook_task_update(params, query, body, headers):
     """Receive task status update from an agent."""
     try:
@@ -211,6 +212,7 @@ def _get_or_create_default_project(conn, agent_id: str) -> str | None:
 
 
 @router.post("/api/webhook/agent-event")
+@require_permission("webhook")
 def webhook_agent_event(params, query, body, headers):
     """Receive agent lifecycle event — auto-create or update tasks.
 
@@ -385,6 +387,7 @@ def webhook_agent_event(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/webhook/plan-create")
+@require_permission("webhook")
 def webhook_plan_create(params, query, body, headers):
     """Receive plan creation from an agent.
 

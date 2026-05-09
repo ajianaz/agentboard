@@ -20,13 +20,14 @@ from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 
 # Local imports
 from config import get_config
 from db import get_db
 from auth import get_or_create_api_key, hash_key, check_auth, check_auth_multi, has_db_keys, _ensure_db_key
 from kpi_engine import KPIEngine
+from rate_limiter import RateLimiter
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
@@ -34,6 +35,9 @@ STATIC_DIR = BASE_DIR / "static"
 # Lazy-loaded API router (may not exist yet during early development)
 _api_router = None
 _api_router_error = None
+
+# Global rate limiter — initialized with config defaults in main()
+rate_limiter: RateLimiter = None  # type: ignore[assignment]
 
 
 def _get_api_router():
@@ -147,12 +151,30 @@ class RequestHandler(BaseHTTPRequestHandler):
         if needs_auth:
             # Try multi-key auth first (schema v3), fallback to legacy single-key
             if has_db_keys():
-                valid, _ = check_auth_multi(self.headers)
+                valid, key_id, permissions, agent_label, key_rate_limit = check_auth_multi(self.headers)
                 if not valid:
                     self._json_response(
                         {"error": "Unauthorized", "code": "UNAUTHORIZED"}, 401
                     )
                     return
+                # Inject key metadata into headers for downstream handlers
+                self.headers["x-auth-valid"] = "true"
+                self.headers["x-key-id"] = key_id or ""
+                self.headers["x-key-permissions"] = permissions
+                self.headers["x-key-agent"] = agent_label
+                # Sync per-key rate limit from DB
+                if rate_limiter and key_id:
+                    rate_limiter.set_key_limit(key_id, key_rate_limit)
+                # Rate limit check
+                if rate_limiter and key_id:
+                    if not rate_limiter.check(key_id):
+                        retry = rate_limiter.retry_after(key_id)
+                        self._json_response(
+                            {"error": "Rate limit exceeded", "code": "RATE_LIMITED",
+                             "retry_after": retry},
+                            429,
+                        )
+                        return
             else:
                 api_key_hash = hash_key(get_or_create_api_key())
                 if not check_auth(self.headers, api_key_hash):
@@ -160,20 +182,23 @@ class RequestHandler(BaseHTTPRequestHandler):
                         {"error": "Unauthorized", "code": "UNAUTHORIZED"}, 401
                     )
                     return
-
-        # Pass auth status to API handlers via internal header
-        # (false = public/unauthenticated request, true = authenticated)
-        if needs_auth:
-            self.headers["x-auth-valid"] = "true"
+                self.headers["x-auth-valid"] = "true"
+                self.headers["x-key-id"] = ""
+                self.headers["x-key-permissions"] = "read,write,admin"
+                self.headers["x-key-agent"] = ""
         else:
             # For public routes, still validate auth if provided —
             # handlers use x-auth-valid to decide visibility (e.g. hidden discussions)
             if has_db_keys():
-                valid, _ = check_auth_multi(self.headers)
+                valid, key_id, permissions, agent_label, key_rate_limit = check_auth_multi(self.headers)
             else:
                 api_key_hash = hash_key(get_or_create_api_key())
                 valid = check_auth(self.headers, api_key_hash)
+                key_id, permissions, agent_label = "", "", ""
             self.headers["x-auth-valid"] = "true" if valid else "false"
+            self.headers["x-key-id"] = key_id if valid else ""
+            self.headers["x-key-permissions"] = permissions if valid else "read"
+            self.headers["x-key-agent"] = agent_label if valid else ""
 
         # API routes
         self._handle_api(method, path, query)
@@ -236,6 +261,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         self._send_cors_headers()
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
+        # Inject rate limit headers for authenticated requests
+        key_id = self.headers.get("x-key-id", "")
+        if rate_limiter and key_id:
+            for hdr, val in rate_limiter.get_headers(key_id).items():
+                self.send_header(hdr, val)
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
@@ -369,6 +399,15 @@ def main():
     # Ensure database exists and is migrated
     get_db()
 
+    # Initialize global rate limiter from config
+    global rate_limiter
+    rl_cfg = cfg.get("rate_limit", {})
+    rate_limiter = RateLimiter(
+        default_limit=rl_cfg.get("default", 60),
+        burst=rl_cfg.get("burst", 10),
+        window_seconds=rl_cfg.get("window_seconds", 60),
+    )
+
     # Ensure at least one API key exists in DB (imports legacy key on first run)
     _ensure_db_key()
 
@@ -464,6 +503,8 @@ def main():
     except KeyboardInterrupt:
         print("\nShutting down.")
         kpi.stop()
+        if rate_limiter:
+            rate_limiter.stop()
         if fb_watcher:
             fb_watcher.stop()
         server.server_close()

@@ -14,7 +14,7 @@ Endpoints:
 
 import json
 from db import get_db, gen_id, slugify
-from api import router, is_authenticated
+from api import require_permission, router, is_authenticated
 from api.validation import validate_title, validate_text, validate_enum, MAX_TITLE_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH, VALID_VISIBILITIES
 from event_bus import publish
 
@@ -139,6 +139,7 @@ def get_project(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/projects")
+@require_permission("admin")
 def create_project(params, query, body, headers):
     data = _parse_body(body)
     if data is None:
@@ -234,6 +235,7 @@ def create_project(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.patch("/api/projects/{slug}")
+@require_permission("admin")
 def update_project(params, query, body, headers):
     slug = params["slug"]
     data = _parse_body(body)
@@ -334,6 +336,7 @@ def update_project(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.delete("/api/projects/{slug}")
+@require_permission("admin")
 def archive_project(params, query, body, headers):
     slug = params["slug"]
     actor = headers.get("x-actor", "owner")
@@ -371,6 +374,7 @@ def archive_project(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/projects/{slug}/restore")
+@require_permission("write")
 def restore_project(params, query, body, headers):
     slug = params["slug"]
     actor = headers.get("x-actor", "owner")

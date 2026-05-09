@@ -13,7 +13,7 @@ Endpoints:
 
 import json
 from db import get_db, gen_id
-from api import router
+from api import require_permission, router
 from api.validation import (
     validate_enum, validate_title, validate_text, validate_task_type,
     VALID_STATUSES, VALID_PRIORITIES,
@@ -220,6 +220,7 @@ def list_project_tasks(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.post("/api/projects/{slug}/tasks")
+@require_permission("write")
 def create_task(params, query, body, headers):
     slug = params["slug"]
     data = _parse_body(body)
@@ -332,6 +333,7 @@ def create_task(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.patch("/api/tasks/{id}")
+@require_permission("write")
 def update_task(params, query, body, headers):
     task_id = params["id"]
     data = _parse_body(body)
@@ -557,6 +559,7 @@ def update_task(params, query, body, headers):
 # ---------------------------------------------------------------------------
 
 @router.delete("/api/tasks/{id}")
+@require_permission("write")
 def delete_task(params, query, body, headers):
     task_id = params["id"]
     actor = headers.get("x-actor", "owner")

@@ -16,7 +16,7 @@ Endpoints:
 import json
 from db import get_db, gen_id
 from activity_logger import log_activity_event, get_actor_from_headers
-from api import router, is_authenticated
+from api import require_permission, router, is_authenticated
 from api.validation import validate_title, validate_text, validate_enum, MAX_TITLE_LENGTH, MAX_COMMENT_LENGTH, VALID_DISCUSSION_STATUSES, VALID_VISIBILITIES, VALID_VERDICTS
 from webhook import on_discussion_created, on_discussion_feedback, on_discussion_closed
 
@@ -153,6 +153,7 @@ def get_discussion(params, query, body, headers):
 
 
 @router.post("/api/discussions")
+@require_permission("write")
 def create_discussion(params, query, body, headers):
     """Create a new discussion.
 
@@ -207,6 +208,7 @@ def create_discussion(params, query, body, headers):
 
 
 @router.patch("/api/discussions/{id}")
+@require_permission("write")
 def update_discussion(params, query, body, headers):
     """Update a discussion.
 
@@ -284,6 +286,7 @@ def update_discussion(params, query, body, headers):
 
 
 @router.delete("/api/discussions/{id}")
+@require_permission("write")
 def delete_discussion(params, query, body, headers):
     """Delete a discussion and all its feedback."""
     discussion_id = params["id"]
@@ -305,6 +308,7 @@ def delete_discussion(params, query, body, headers):
 
 
 @router.post("/api/discussions/{id}/feedback")
+@require_permission("write")
 def add_feedback(params, query, body, headers):
     """Add feedback for a discussion round.
 
@@ -476,6 +480,7 @@ def get_discussion_summary(params, query, body, headers):
 # ── Feedback File Ingestion (standalone feature) ──
 
 @router.post("/api/discussions/ingest")
+@require_permission("write")
 def ingest_feedback_file(params, query, body, headers):
     """Manually ingest a feedback file from disk into the database.
 
